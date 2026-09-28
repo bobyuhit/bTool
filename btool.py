@@ -1502,17 +1502,34 @@ class App(tk.Tk):
     def post(self, kind, **kw):
         self.msgq.put((kind, kw))
 
+    # 每轮消息泵最多处理这么多条, 积压时把剩下的留到下一轮。
+    # ⚠ 不能写成 `while True: get_nowait()` 直到队列空: 板子持续刷屏时, 读线程
+    #   灌消息的速度可以超过这里处理的速度 (原生 USB 的虚拟串口能跑到 Mbps 级,
+    #   比 115200 快两个数量级), 队列越积越多、这一轮就越跑越久, 最后**永远出
+    #   不来** —— 主线程卡死, 窗口一动不动, 只能强杀进程。加上限后最坏也只是
+    #   "终端显示滞后", 不再有卡死这条路径。
+    DRAIN_MAX = 200
+
     def _drain(self):
         try:
-            while True:
-                kind, kw = self.msgq.get_nowait()
+            for _ in range(self.DRAIN_MAX):
+                try:
+                    kind, kw = self.msgq.get_nowait()
+                except queue.Empty:
+                    break
                 try:
                     self._handle(kind, kw)
                 except Exception:
-                    self.log_repl(tr("ui_error") + traceback.format_exc())
-        except queue.Empty:
-            pass
-        self._drain_id = self.after(60, self._drain)
+                    # 兜底本身也要护住: log_repl 自己也可能抛 (窗口已销毁等),
+                    # 那会直接冲出下面的 finally。
+                    try:
+                        self.log_repl(tr("ui_error") + traceback.format_exc())
+                    except Exception:
+                        pass
+        finally:
+            # ★ 必须放 finally: 万一上面抛出, 放外面的话 after 就不会被安排,
+            #   消息泵**永久停摆** —— 界面从此收不到后台的任何更新, 看着也像卡死。
+            self._drain_id = self.after(60, self._drain)
 
     def on_about(self):
         """「关于」—— 功能、作者、几个必须知道的点。
@@ -2175,7 +2192,14 @@ class App(tk.Tk):
             # 没有的话文件页那几个按钮得置灰 (见 _sync_file_ui)。
             # 必须**在 post("connected") 之前**发 —— 那个会触发 _after_connect,
             # 里面就要用这个值了。
-            self.post("repl_ok", ok=bool(greet))
+            #
+            # ⚠ 判据是 `>>> in greet`, **不是** `bool(greet)`:
+            #   read_until 超时返回的是**读到的全部内容**, 不是"找到没找到"。
+            #   板子还在开机时它返回的是开机日志 (非空) —— 用 bool() 判会得
+            #   到"有 MicroPython", 于是文件按钮亮起、refresh_device 往下走、
+            #   enter_raw 失败, 弹一句莫名其妙的 "cannot enter raw REPL"。
+            #   (对照 enter_raw 里的正确用法: `if b"raw REPL" in got`)
+            self.post("repl_ok", ok=(b">>>" in greet))
             self.post("connected")
 
         self.run_bg(work)
@@ -2232,6 +2256,13 @@ class App(tk.Tk):
     def _stop_reader(self):
         self._reader_on = False
 
+    # 终端回显的**最小间隔** (秒): 读到数据后至少歇这么久再读下一次。
+    # ★ 没有它会出事 —— 原生 USB 的虚拟串口能跑到 Mbps 级 (比 115200 快两个数量
+    #   级), 读线程会以串口速度往队列里灌消息, 而主线程每块都要逐字符解析再加
+    #   一次 t.index()/t.see() (全是 Tcl 调用), 根本处理不完 → 队列越积越多 →
+    #   _drain 卡死 → 窗口一动不动。节流后最坏是丢掉一部分显示, 不会卡界面。
+    READ_MIN_INTERVAL = 0.03
+
     def _reader_loop(self):
         # ⚠ 循环条件**只能看 _reader_on**, 不能带 self.sm.is_open:
         #   烧写时会主动关掉串口 (让给 esptool), 那一刻 is_open 变 False,
@@ -2248,6 +2279,7 @@ class App(tk.Tk):
                 continue
             if data:
                 self.post("term", text=data.decode("utf-8", "replace"))
+                time.sleep(self.READ_MIN_INTERVAL)      # 节流, 见上面的说明
             else:
                 time.sleep(0.02)
 

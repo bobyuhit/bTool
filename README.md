@@ -35,7 +35,11 @@ ESP32-P4                            ESP8266
 
 ### 方式一：直接用 exe（推荐）
 
-到 **[Releases](../../releases)** 下载 `bTool.exe`，双击即用。**不需要装 Python。**
+**⬇ [下载 bTool.exe](../../releases/latest/download/bTool.exe)** —— 点一下就开始下载（33.8 MB）
+
+（`latest` 这个链接**永远指向最新版**，不用管版本号；历史版本在 [Releases](../../releases) 页。）
+
+双击即用，**不需要装 Python。**
 
 - 免安装、免配置，可以拷到任何 64 位 Windows 上跑
 - 首次运行 Windows SmartScreen 可能拦一下（exe 未签名）：**更多信息 → 仍要运行**

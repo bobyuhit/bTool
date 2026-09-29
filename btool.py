@@ -764,6 +764,7 @@ LANG = {
         "cal_imu_going": "正在标定, 采样 {n} 次 …",
         "cal_imu_done": "标定完成 (板子没回话, 但没报错)",
         "cal_out": "输出",
+        "ui_error_short": "界面出错: {msg} —— 详情见终端页",
         "cal_chip_unknown": "读不到 IMU (没连板子或没接芯片)",
         "cal_chip_mag": "带磁力计",
         "cal_chip_nomag": "无磁力计",
@@ -1047,6 +1048,7 @@ LANG = {
         "cal_imu_going": "Calibrating, {n} samples ...",
         "cal_imu_done": "Done (no reply, but no error either)",
         "cal_out": "Output",
+        "ui_error_short": "UI error: {msg} — see the REPL tab",
         "cal_chip_unknown": "Cannot read IMU (no board / no chip)",
         "cal_chip_mag": "has magnetometer",
         "cal_chip_nomag": "no magnetometer",
@@ -1993,6 +1995,15 @@ def imu_calibrate(sm, n):
     """
     out, err = sm.raw_exec(
         "import bpuppy_imu as i" + chr(10) +
+        # ⚠ 先 init(): IMU 是**按需初始化**的 (开机不自动起, 免得白占 I2C)。
+        #   不 init 的话 is_ready() 是 False、get_chip() 回 "unknown";
+        #   参数照抄固件自己的 frozen 模块 (balance.py / calib_mag.py 都是
+        #   init(0, 14, 21, 0x68) —— I2C0, SDA=GPIO14, SCL=GPIO21, addr=0x68)。
+        #   而更糟的是固件里 imu_calibrate() 第一句就是
+        #   `if (!g_imu_ready || n<10) return;` —— **静默什么都不做**,
+        #   界面却会报"标定完成"。实测踩到过: 板上 is_ready()=False,
+        #   而三个校准入口没有一个会先把它叫起来。imu_init 是幂等的。
+        "i.init(0, 14, 21, 0x68)" + chr(10) +
         "i.calibrate(%d)" % int(n) + chr(10),
         timeout=max(15.0, n * 0.05 + 15.0))
     return (out or "") + (err or "")
@@ -2002,8 +2013,15 @@ def imu_info(sm):
     """芯片名 + 有没有磁力计。有没有磁力计**只能问 has_mag()**, 不能看型号。"""
     out, err = sm.raw_exec(
         "import bpuppy_imu as i" + chr(10) +
+        # ⚠ 先 init(): IMU 是**按需初始化**的 (开机不自动起, 免得白占 I2C)。
+        #   不 init 的话 is_ready() 是 False、get_chip() 回 "unknown";
+        #   而更糟的是固件里 imu_calibrate() 第一句就是
+        #   `if (!g_imu_ready || n<10) return;` —— **静默什么都不做**,
+        #   界面却会报"标定完成"。实测踩到过: 板上 is_ready()=False,
+        #   而三个校准入口没有一个会先把它叫起来。imu_init 是幂等的。
+        "i.init(0, 14, 21, 0x68)" + chr(10) +
         "print('IMU %s %d' % (i.get_chip(), 1 if i.has_mag() else 0))" + chr(10),
-        timeout=5.0)
+        timeout=6.0)
     chip, has = "", False
     for line in (out or "").splitlines():
         line = line.strip()
@@ -2016,7 +2034,15 @@ def imu_info(sm):
 
 def mag_cal_start(sm):
     out, err = sm.raw_exec(
-        "import bpuppy_imu as i" + chr(10) + "i.mag_cal_start()" + chr(10), timeout=5.0)
+        "import bpuppy_imu as i" + chr(10) +
+        # ⚠ 先 init(): IMU 是**按需初始化**的 (开机不自动起, 免得白占 I2C)。
+        #   不 init 的话 is_ready() 是 False、get_chip() 回 "unknown";
+        #   而更糟的是固件里 imu_calibrate() 第一句就是
+        #   `if (!g_imu_ready || n<10) return;` —— **静默什么都不做**,
+        #   界面却会报"标定完成"。实测踩到过: 板上 is_ready()=False,
+        #   而三个校准入口没有一个会先把它叫起来。imu_init 是幂等的。
+        "i.init(0, 14, 21, 0x68)" + chr(10) +
+        "i.mag_cal_start()" + chr(10), timeout=6.0)
     return (out or "") + (err or "")
 
 
@@ -2689,6 +2715,14 @@ class App(tk.Tk):
         # ---- 工具 ----
         # 只分三块, 别再多插分隔线 —— 一块两三行还各插一条会碎得很难扫。
         t = tk.Menu(bar, tearoff=0)      # tearoff=0: 去掉顶上那条虚线"撕离"项
+        # ★ 必须留引用: 「连接 / 断开」两项的可点状态要随连接状态改 (换成
+        #   entryconfigure), 别处 (set_busy / _after_connect / _render_dev) 都靠
+        #   self.menu_tools 找到它。
+        #   ⚠ 这一行曾经漏掉过 —— 而漏掉的后果是**每个后台操作都当场崩**:
+        #     run_bg 第一句就是 set_busy(True), 那里要 entryconfigure 连接项;
+        #     AttributeError 之后线程根本没起, 光标却已经设成了"转圈"。
+        #     加上 pythonw 没有 stderr, 异常无声无息, 看着就是"界面卡死了"。
+        self.menu_tools = t
         # 「串口」放在工具菜单里 (Arduino 的「工具 → 端口」也是子菜单)。
         # 内容是**动态**的: 每次扫到端口就重建一次, 见 _apply_ports。
         # 当前选中的口用单选圆点标出 —— 不用开下拉也看得出连的是哪个口。
@@ -3644,6 +3678,34 @@ class App(tk.Tk):
             #   消息泵**永久停摆** —— 界面从此收不到后台的任何更新, 看着也像卡死。
             self._drain_id = self.after(60, self._drain)
 
+    def report_callback_exception(self, exc, val, tb):
+        """Tk 回调里没接住的异常 —— **必须接住并显示出来**。
+
+        默认实现只往 stderr 打一行, 而这个程序是用 pythonw 起的 (打包后更是
+        没有控制台), stderr 根本没人看。于是界面上的表现只剩"点了没反应"
+        或者"卡死了", 一点线索都没有。
+
+        实测代价: 有个 AttributeError (self.menu_tools 漏赋值) 藏了好几轮 ——
+        它让**每一个后台操作**都在 set_busy(True) 当场崩, 而 set_busy 已经把
+        光标设成了"转圈", 于是现象恰好就是"转圈 + 卡死"。
+
+        这里做两件事: 把 traceback 写进终端 (用户能看到、能复制), 状态栏报一句,
+        并把 busy 复位 —— 卡在"忙"状态是这种崩溃最常见的后果。
+        """
+        try:
+            self.log_repl("!! " + "".join(
+                traceback.format_exception(exc, val, tb)))
+        except Exception:
+            pass
+        try:
+            self.var_status.set(tr("ui_error_short", msg=val))
+        except Exception:
+            pass
+        try:
+            self.set_busy(False)
+        except Exception:
+            pass
+
     def on_about(self):
         """「关于」—— 功能、作者、几个必须知道的点。
 
@@ -4525,6 +4587,18 @@ class App(tk.Tk):
             sm.read_avail()
             sm.write(b"\r")
             greet = sm.read_until(b">>>", timeout=2.0)
+            if b">>>" not in greet:
+                # ★ 兜底: 板子可能卡在 **raw REPL** 里 (被强杀的程序、或上一次
+                #   文件操作没收尾)。raw REPL 不回显 `>>>`, 光按 Ctrl+C 出不来 ——
+                #   **Ctrl-B 才是"退回普通 REPL"**。
+                #   不加这一步的话, 用户会卡在"连上了但看不到提示符、文件管理
+                #   全灰、切回 REPL 按钮也是灰的"这个死角里 (实测踩到过:
+                #   我自己的测试被 timeout 杀掉, 就是这么把板子留在 raw 的)。
+                sm.write(b"\x02")
+                time.sleep(0.4)
+                sm.read_avail()
+                sm.write(b"\r")
+                greet += sm.read_until(b">>>", timeout=2.0)
             self.post("repl", text=tr("connected", port=port, baud=repl_baud))
             if greet:
                 self.post("repl_raw", text=greet.decode("utf-8", "replace"))

@@ -701,7 +701,7 @@ LANG = {
 
         # 机器狗设置页
         "dog_need_conn": "先连接板子才能读写机器狗参数",
-        "dog_need_mppy": "板子上没跑 MicroPython, 读不到机器狗参数",
+        "dog_need_mppy": "没检测到 MicroPython 提示符 —— 在终端里按一下回车试试",
         "dog_intro": ("这些参数写进板子的 NVS, 掉电不丢。每栏右边各有「读取 / 写入」, "
                       "只作用于那一栏。"
                       "\n⚠ 前后髋距 / 左右髋宽填的是半距 / 半宽 —— 填全长会得到两倍大的机身。"),
@@ -755,6 +755,7 @@ LANG = {
         "cal_imu_done": "标定完成 (板子没回话, 但没报错)",
         "cal_out": "输出",
         "term_send_fail": "[发送失败: {msg}]",
+        "repl_found_late": "检测到 MicroPython 提示符 —— 文件管理和机器狗设置已启用",
         "ui_error_short": "界面出错: {msg} —— 详情见终端页",
         "cal_chip_unknown": "读不到 IMU (没连板子或没接芯片)",
         "cal_chip_mag": "带磁力计",
@@ -966,7 +967,7 @@ LANG = {
 
         # Robot dog tab
         "dog_need_conn": "Connect to the board first",
-        "dog_need_mppy": "No MicroPython on the board — cannot read dog params",
+        "dog_need_mppy": "No MicroPython prompt seen — try pressing Enter in the terminal",
         "dog_intro": ("These are written to the board's NVS and survive power-off. "
                       "Each row has its own Read / Write."
                       "\n⚠ Body length/width take HALF values — a full length "
@@ -1021,6 +1022,7 @@ LANG = {
         "cal_imu_done": "Done (no reply, but no error either)",
         "cal_out": "Output",
         "term_send_fail": "[send failed: {msg}]",
+        "repl_found_late": "MicroPython prompt detected — Files and Robot Dog enabled",
         "ui_error_short": "UI error: {msg} — see the REPL tab",
         "cal_chip_unknown": "Cannot read IMU (no board / no chip)",
         "cal_chip_mag": "has magnetometer",
@@ -4632,7 +4634,12 @@ class App(tk.Tk):
             time.sleep(0.3)
             sm.read_avail()
             sm.write(b"\r")
-            greet = sm.read_until(b">>>", timeout=2.0)
+            greet = sm.read_until(b">>>", timeout=3.0)
+            # 再给两次机会 —— 板子刚上电时开机日志能刷好几秒, 只读一次
+            # 很容易只读到日志尾巴, 而 repl_ok 一旦错着就不会自己好。
+            if b">>>" not in greet:
+                sm.write(b"\r")
+                greet += sm.read_until(b">>>", timeout=1.5)
             if b">>>" not in greet:
                 # ★ 兜底: 板子可能卡在 **raw REPL** 里 (被强杀的程序、或上一次
                 #   文件操作没收尾)。raw REPL 不回显 `>>>`, 光按 Ctrl+C 出不来 ——
@@ -4776,6 +4783,16 @@ class App(tk.Tk):
                 time.sleep(0.05)
                 continue
             if data:
+                # ★ 自愈: 只要板子吐出过 `>>>`, 它就**一定**在跑 MicroPython。
+                #   连接握手只在那一瞬间判一次 (read_until, 几秒), 板子刚上电、
+                #   开机日志还没打完, 或者正在跑用户程序, 那一次就可能错过 ——
+                #   而错过之后 repl_ok 会**永远是 False**: 文件管理全灰、机器狗页
+                #   挂着"板子上没跑 MicroPython"、三个校准按钮也点不了, 可板子
+                #   明明能打字交互 (用户实测就是这么撞上的)。
+                #   读线程本来就看得到板子所有的输出, 在这儿补一刀最省事。
+                if not self.repl_ok and b">>>" in data:
+                    self.post("repl_ok", ok=True)
+                    self.post("status", text=tr("repl_found_late"))
                 self.post("term", text=data.decode("utf-8", "replace"))
                 time.sleep(self.READ_MIN_INTERVAL)      # 节流, 见上面的说明
             else:

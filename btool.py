@@ -187,10 +187,30 @@ C_OK        = "#1DA086"
 # --- 深色区: Arduino 的输出面板与终端**都是纯黑** ---
 C_OUT_BG, C_OUT_FG = "#000000", "#FFFFFF"   # arduino.output.background / .foreground
 C_TERM_BG, C_TERM_FG, C_TERM_SEL = "#000000", "#FFFFFF", "#7FCBCD"
-# --- 页签 ---
-C_TABSTRIP  = "#ECF1F1"   # = C_CHROME, 单独给个名字是因为这里它同时是"条带底色"
-C_TAB_OFF_FG = "#8B8B8B"  # 未选中页签文字 (Arduino 未定义, 取 VS Code 浅色默认)
-C_TAB_HOVER = "#DAE3E3"   # 未选中页签悬停
+# --- 顶部工具栏 (Arduino 的工具栏条) ---
+# ⚠ 底色是 **#006D70** 而不是 #008184 —— 实拍 Arduino IDE 2.3.10 逐像素采样确认。
+#   它就是 statusBar.background / titleBar.activeBackground, 同一个深 teal。
+#   早先用 #008184 (branding.primary) 偏亮, 跟圆按钮底色 #7FCBCD 对比不足。
+C_TOPBAR    = "#006D70"   # 工具栏底色
+C_TOPBAR_LN = "#005C5F"   # 工具栏下沿 1px (压深一档, 跟内容区划清界线)
+# --- 左侧页面竖栏 (Arduino 的 activityBar, 实拍取值) ---
+#   实拍: 栏宽 60px / 底色 #ECF1F1 / 未选中图标 #BDC7C7 / 选中图标 #4E5B61 /
+#         选中标记 = **左沿 2px 竖条 #008184**, 背景不变 (不是"整块变色")
+C_RAIL_BG   = "#ECF1F1"   # activityBar.background
+C_RAIL_W    = 48          # 竖栏宽度 (逻辑px)。Arduino 实拍 60 —— 它图标也大;
+                          #   bTool 图标 28px, 48 已经足够疏朗又不浪费横向空间
+C_RAIL_FG   = "#4E5B61"   # activityBar.foreground        —— 选中项图标
+C_RAIL_DIM  = "#BDC7C7"   # activityBar.inactiveForeground —— 未选中图标
+C_RAIL_MARK = "#008184"   # activityBar.activeBorder      —— 选中项左沿竖条
+C_RAIL_HOV  = "#E0F1F1"   # 悬停底 (实拍里出现过的一层极浅青)
+
+# ---- 圆形工具按钮 (Arduino 工具栏规格, 源码原值) ----
+#   border-radius 14px + 28px 方块 = 正圆; 底色 toolbar.button.background;
+#   圆内图标色 = titleBar.activeBackground (#006D70, Arduino 的图标就是这个色)
+C_TOOL_BG    = "#7FCBCD"
+C_TOOL_FG    = "#006D70"
+C_TOOL_HOVER = "#F7F9F9"   # toolbar.button.hoverBackground
+C_TOOL_DIM   = "#5E9FA0"   # 禁用态圆底 (比 C_TOOL_BG 暗, 表示不可点)
 
 
 # ======================================================================
@@ -218,7 +238,133 @@ def _seg_dist(px, py, ax, ay, bx, by):
     return ((px - ex) ** 2 + (py - ey) ** 2) ** 0.5
 
 
-def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0):
+# ---- 线描图标 / line icons ----
+# Arduino 的图标全是**线描**风格 (stroke, 统一线宽, 端点圆整)。之前我用实心三角/方块
+# 画, 形状是够用但糙 —— 这里改成同一套线描画法。
+# 坐标一律用 **0~1 归一化**, 由 box 映射到实际像素, 所以同一个图标能在任意尺寸下复用。
+# 图元:
+#   ("line", x0, y0, x1, y1)          线段
+#   ("rect", x0, y0, x1, y1)          矩形**框** (只画边)
+#   ("box",  x0, y0, x1, y1)          实心矩形
+_ICONS = {
+    # 连接: 箭头插进一根竖条 (plug in)
+    # ⚠ 箭头那两笔**必须短**。笔画本身有宽度, 两笔在尖端夹出的实心三角会糊成一坨 ——
+    #   实拍 Arduino 圆里的 ✓ / → 都是细笔画 + 小箭头, 视觉重量全在这儿。
+    "connect": [("line", 0.08, 0.50, 0.60, 0.50),
+                ("line", 0.46, 0.34, 0.62, 0.50),
+                ("line", 0.46, 0.66, 0.62, 0.50),
+                ("line", 0.88, 0.16, 0.88, 0.84)],
+    # 断开: 向上抽出的箭头 + 底线 (拔出)
+    "disconnect": [("line", 0.50, 0.84, 0.50, 0.28),
+                   ("line", 0.36, 0.44, 0.50, 0.26),
+                   ("line", 0.64, 0.44, 0.50, 0.26),
+                   ("line", 0.16, 0.92, 0.84, 0.92)],
+    # 已连接: 对勾
+    "check": [("line", 0.12, 0.52, 0.38, 0.80), ("line", 0.38, 0.80, 0.88, 0.20)],
+    # 未连接: 叉
+    "cross": [("line", 0.18, 0.18, 0.82, 0.82), ("line", 0.18, 0.82, 0.82, 0.18)],
+    # --- 左侧竖栏的页面图标 ---
+    # 烧写: 向下箭头 + 底线 (download)
+    "ic_flash": [("line", 0.50, 0.08, 0.50, 0.60),
+                 ("line", 0.30, 0.40, 0.50, 0.62),
+                 ("line", 0.70, 0.40, 0.50, 0.62),
+                 ("line", 0.18, 0.90, 0.82, 0.90)],
+    # 终端: > 加下划线。下划线要**长**、要压在 > 的下端同一水平线上, 才像命令行
+    "ic_term": [("line", 0.14, 0.24, 0.44, 0.50),
+                ("line", 0.44, 0.50, 0.14, 0.76),
+                ("line", 0.56, 0.78, 0.90, 0.78)],
+    # 文件: 一个**文件夹** (Arduino 的 SKETCHBOOK 就是个文件夹)。
+    #   早先画"一张纸 + 三条内容线", 在 26px 下三条线糊成一个实心块 ——
+    #   看着就是个黑方块, 完全认不出是什么。少即是多。
+    "ic_file": [("line", 0.10, 0.24, 0.42, 0.24),
+                ("line", 0.42, 0.24, 0.42, 0.34),
+                ("line", 0.42, 0.34, 0.90, 0.34),
+                ("line", 0.90, 0.34, 0.90, 0.82),
+                ("line", 0.90, 0.82, 0.10, 0.82),
+                ("line", 0.10, 0.82, 0.10, 0.24)],
+    # 芯片: 方框 + 四脚
+    "ic_chip": [("rect", 0.26, 0.26, 0.74, 0.74),
+                ("line", 0.50, 0.10, 0.50, 0.26),
+                ("line", 0.50, 0.74, 0.50, 0.90),
+                ("line", 0.10, 0.50, 0.26, 0.50),
+                ("line", 0.74, 0.50, 0.90, 0.50)],
+}
+
+
+def _icon_hit(x, y, box, name, th):
+    """点 (x,y) 是否落在名为 name 的线描图标上 (坐标归一化, 由 box 映射)。"""
+    x0, y0, x1, y1 = box
+    W, H = x1 - x0, y1 - y0
+    if W <= 0 or H <= 0:
+        return False
+    for st in _ICONS.get(name, ()):
+        k = st[0]
+        a, b = x0 + st[1] * W, y0 + st[2] * H
+        c, d = x0 + st[3] * W, y0 + st[4] * H
+        if k == "line":
+            if _seg_dist(x, y, a, b, c, d) <= th:
+                return True
+        elif k == "rect":
+            if a - th <= x <= c + th and b - th <= y <= d + th                     and not (a + th <= x <= c - th and b + th <= y <= d - th):
+                return True
+        elif k == "box":
+            if a <= x <= c and b <= y <= d:
+                return True
+    return False
+
+
+
+def _icon_ppm(n, name, fg, bg, ss=4, th=None):
+    """线描图标 → n×n 的 PPM(P6) 原始字节 (线条 fg, 背景 bg)。
+
+    ⚠ 背景色是**烤进图里的** —— PPM 没有 alpha 通道, 所以必须传入图标所在
+      容器的实际底色, 否则图标四周会带一个异色方块。
+
+    坐标走 _ICONS 的归一化表, 所以同一个图标名在任意尺寸下都成立
+    (竖栏 26px、圆按钮里 14px, 都是同一份定义)。
+    """
+    th = th if th is not None else max(1.0, n * 0.062)   # 线宽 ≈ 图标尺寸的 6.2%
+    box = (n * 0.12, n * 0.12, n * 0.88, n * 0.88)       # 图形占中间 76%
+    fr, fgn, fb = _rgb(fg)
+    br, bgn, bb = _rgb(bg)
+    NL = chr(10)
+    buf = bytearray(("P6" + NL + "%d %d" % (n, n) + NL + "255" + NL).encode())
+    inv = 1.0 / (ss * ss)
+    for y in range(n):
+        for x in range(n):
+            hit = 0
+            for j in range(ss):
+                yy = y + (j + 0.5) / ss
+                for i in range(ss):
+                    if _icon_hit(x + (i + 0.5) / ss, yy, box, name, th):
+                        hit += 1
+            a = hit * inv
+            buf.append(int(br + (fr - br) * a))
+            buf.append(int(bgn + (fgn - bgn) * a))
+            buf.append(int(bb + (fb - bb) * a))
+    return bytes(buf)
+
+
+def _mark_hit(x, y, box, shape):
+    """图标覆盖判定: 点 (x,y) 是否落在图标内。box = (x0, y0, x1, y1) 图像像素。
+
+    shape 直接取 _ICONS 里的**线描图标名** (connect / disconnect / check /
+    cross / ic_flash ...) —— 圆按钮里的图形和左侧竖栏的图标因此共用同一套
+    画法, 不用各写一份覆盖判定 (早先这里是 play/stop/check/cross 四个硬编码
+    形状, 而且 play 是个实心三角, 视觉重量跟别处对不上)。
+    """
+    x0, y0, x1, y1 = box
+    if not (x0 <= x <= x1 and y0 <= y <= y1):
+        return False
+    # 笔画粗细取短边的 6% —— 跟 _icon_ppm 的默认线宽同量级, 免得同一个图标
+    # 挂在圆按钮里和在竖栏里看着一粗一细。
+    # ⚠ 这个数**调大过就回不去了**: 实拍对比过 Arduino 圆里的 ✓ / →, 它的笔画
+    #   只占直径的 6% 左右; 我这里一度是 9%, 放大看箭头直接糊成一个实心三角。
+    return _icon_hit(x, y, box, shape, max(1.0, min(x1 - x0, y1 - y0) * 0.06))
+
+
+def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
+            mark=None):
     """圆角矩形 → PPM(P6) 原始字节 (tk.PhotoImage 直接吃 bytes, **不能**用 base64)。
 
     三层合成: 外部色 outside → 边框色 border → 填充色 fill, 各带覆盖率。
@@ -244,6 +390,10 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0):
     #   为什么不单用 Combobox.downarrow 元素: 它跟圆角 field 并存时要么被 field
     #   挤掉宽度、要么取不到 arrowcolor 而根本不画 (两种都实测过, 都没出来)。
     #   画进图里最稳 —— 而且整个下拉框本来就可点, 不靠那个元素响应。
+    if mark:
+        mkn, _mkc, mk_pad = mark       # (形状, 颜色, 边距)
+        _mk = _rgb(_mkc)
+        mk_box = (mk_pad, mk_pad, w - mk_pad, h - mk_pad)
     cxs = cy = cx = None
     if chevron:
         cx, cy, hw, hh, ctk, _cc = chevron
@@ -254,6 +404,19 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0):
             ai = cov(x, y, bw)
             rgb = [outside[k] * (1.0 - ao) + border[k] * max(0.0, ao - ai)
                    + fill[k] * ai for k in range(3)]
+            # mark: 圆里画一个图标 —— 直接画进图里, 不用字体字符
+            #   (U+25B6 这类字符在部分字体下会被渲染成彩色 emoji, 不可控)
+            if mark and mk_box[0] <= x <= mk_box[2] and mk_box[1] <= y <= mk_box[3]:
+                hit = 0
+                for i in range(ss):
+                    for j in range(ss):
+                        sx, sy = x + (i + 0.5) / ss, y + (j + 0.5) / ss
+                        if _mark_hit(sx, sy, mk_box, mkn):
+                            hit += 1
+                m_a = hit / (ss * ss)
+                if m_a > 0:
+                    for k in range(3):
+                        rgb[k] = rgb[k] * (1 - m_a) + _mk[k] * m_a
             if chevron and creg[0] <= x <= creg[2] and creg[1] <= y <= creg[3]:
                 hit = 0
                 for i in range(ss):
@@ -398,7 +561,7 @@ LANG = {
         "port": "串口:",
         "refresh": "刷新",
         "chip": "芯片:",
-        "language": "语言:",
+        "language": "语言",      # 原先是工具栏标签 "语言:" (后面跟下拉框); 那个下拉已删, 现在只给菜单用
         "connect": "连接",
         "disconnect": "断开",
 
@@ -496,8 +659,9 @@ LANG = {
         "connecting": "正在连接 {port} ...",
         "connected": "—— 已连接 {port} @{baud} ——",
         "connected_status": "已连接 {port} (REPL)",
-        "not_connected": "● 未连接",
-        "linked": "● 已连接 {port} @{baud}",
+        "link_up": "已连接",
+        "not_connected": "未连接",
+        "linked": "已连接 {port} @{baud}",
         "flash_progress": "烧写进度:",
         "no_prompt": "(没看到 >>> 提示符; 若板子在跑程序请按 Ctrl+C)",
         "disconnected": "已断开",
@@ -563,6 +727,20 @@ LANG = {
         "fl_reopen": "[串口已重新打开]",
         "fl_reopen_fail": "[串口重开失败: {msg}]",
         "progress_pct": "进度 {pct:.1f}%  ({cur} / {total})",
+        # 菜单栏 / menu bar
+        "menu_file":     "文件",
+        "menu_tools":    "工具",
+        "port_menu":     "串口",
+        "menu_settings": "设置",
+        "menu_help":     "帮助",
+        "quit":          "退出",
+        "refresh_ports": "刷新串口",
+        "clear_fw_list": "清空固件列表",
+        "flash_start":   "开始烧写",
+        "user_manual":   "用户手册",
+        "dev_notes":     "开发说明",
+        "about_app":     "关于 bTool",
+
     },
 
     "en": {
@@ -573,7 +751,7 @@ LANG = {
         "port": "Port:",
         "refresh": "Refresh",
         "chip": "Chip:",
-        "language": "Language:",
+        "language": "Language",
         "connect": "Connect",
         "disconnect": "Disconnect",
 
@@ -673,8 +851,9 @@ LANG = {
         "connecting": "Connecting to {port} ...",
         "connected": "—— Connected {port} @{baud} ——",
         "connected_status": "Connected {port} (REPL)",
-        "not_connected": "● Not connected",
-        "linked": "● Connected {port} @{baud}",
+        "link_up": "Connected",
+        "not_connected": "Not connected",
+        "linked": "Connected {port} @{baud}",
         "flash_progress": "Flash progress:",
         "no_prompt": "(no >>> prompt seen; press Ctrl+C if the board is running a program)",
         "disconnected": "Disconnected",
@@ -739,6 +918,20 @@ LANG = {
         "fl_reopen": "[serial port reopened]",
         "fl_reopen_fail": "[failed to reopen port: {msg}]",
         "progress_pct": "Progress {pct:.1f}%  ({cur} / {total})",
+        # menu bar
+        "menu_file":     "File",
+        "menu_tools":    "Tools",
+        "port_menu":     "Port",
+        "menu_settings": "Settings",
+        "menu_help":     "Help",
+        "quit":          "Quit",
+        "refresh_ports": "Refresh Ports",
+        "clear_fw_list": "Clear Firmware List",
+        "flash_start":   "Flash",
+        "user_manual":   "User Manual",
+        "dev_notes":     "Developer Notes",
+        "about_app":     "About bTool",
+
     },
 }
 
@@ -1317,91 +1510,243 @@ def dev_mkdir(sm, path):
 # 主界面 / main window
 # ======================================================================
 
-class FlatTabs(tk.Frame):
-    """扁平页签条 + 内容区 (自绘)。
+class CircleButton(tk.Label):
+    """圆形工具按钮 —— 照 Arduino 工具栏规格 (正圆 + 图标)。
 
-    为什么不用 `ttk.Notebook`: 它的页签形状是**主题的 element 决定的**, clam 和 vista
-    都画成"文件夹标签"那种带斜边的梯形 —— 形状本身就旧, 而且改不动 (只能调颜色)。
-    Arduino IDE (VS Code / Theia 底子) 的页签是**扁平矩形**:
-        激活项 —— 底色 = 内容区底色 (像"融进去"), 顶部一条 2px 品牌色描边
-        未激活 —— 底色稍深, 文字浅灰, 无描边
-    这个形状 ttk 做不出来, 所以用普通 tk 控件自己拼 (tk 控件完全听 bg/fg 的)。
+    为什么不用 ttk.Button:
+      · ttk 按钮的形状由主题 element 决定, **做不出正圆**;
+      · 圆角那套九宫格图对正圆也不适用 —— 圆没有可拉伸的中间段, 九宫格会拉变形。
+    所以用 tk.Label 贴一张**画好的整圆图**, 自己绑点击与悬停。
 
-    对外接口刻意做得跟 Notebook 接近, 少改调用方:
-        add(frame, text)  加一页
-        select(frame)     切到某页 (不传参数则返回当前页)
+    代价: 不进 ttk 的焦点环, Tab 键跳不到。可接受 —— 这两个动作在「工具」菜单里都有,
+    且带快捷键 (Ctrl+K), 键盘用户走菜单即可。
+
+    图标是**画进图里**的线描图形 (箭头插进竖条 = 连接 / 向上弹出 = 断开),
+    不用字体字符: U+25B6 这类符号在部分字体下会渲染成彩色 emoji, 不可控。
+    """
+
+    def __init__(self, master, shape, bg, command, size=None):
+        self._n = size or px(28)
+        self._cmd = command
+        self._enabled = True
+        super().__init__(master, bd=0, highlightthickness=0, bg=bg)
+        self._imgs = {}
+        # 边距 0.20 —— 实拍 Arduino 圆里的图形约占直径的一半 (它圆 28px, 图形约 20px),
+        # 早先用 0.32 缩得太小, 圆看着空; 后来又放到 0.14, 配粗笔画显得要撑破圆。
+        _pad = int(self._n * 0.20)
+        for key, fill, fg in (("",       C_TOOL_BG,    C_TOOL_FG),
+                              ("hover",  C_TOOL_HOVER, C_TOOL_FG),
+                              ("dim",    C_TOOL_DIM,   C_TOPBAR)):
+            im = tk.PhotoImage(data=_rr_ppm(self._n, self._n, self._n / 2.0,
+                                            _rgb(fill), _rgb(fill), _rgb(bg),
+                                            mark=(shape, fg, _pad)))
+            _ROUND_IMGS.append(im)          # ★ 必须留引用, 否则 GC 后是黑块
+            self._imgs[key] = im
+        self.configure(image=self._imgs[""], cursor="hand2")
+        self.bind("<Button-1>", self._click)
+        self.bind("<Enter>", lambda _e: self._paint("hover"))
+        self.bind("<Leave>", lambda _e: self._paint(""))
+
+    def _paint(self, key):
+        self.configure(image=self._imgs["dim" if not self._enabled else key])
+
+    def set_enabled(self, on):
+        self._enabled = bool(on)
+        self.configure(cursor="hand2" if self._enabled else "")
+        self._paint("")
+
+    def _click(self, _e):
+        if self._enabled:
+            self._cmd()
+
+
+class _Tip(object):
+    """极简 tooltip —— 竖栏里只有图标, 不给文字就不知道哪个是哪个。
+
+    自己写而不是找现成库: 单文件 + 免安装 exe 是 bTool 的硬性质, 引第三方
+    控件库会把这条破掉。这里只要"悬停出一个小黄条", 二十行够了。
+    """
+
+    def __init__(self, widget, text):
+        self.w = widget
+        self.text = text
+        self.win = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<Button-1>", self._hide, add="+")
+
+    def _show(self, _e=None):
+        if self.win is not None or not self.text:
+            return
+        try:
+            self.w.update_idletasks()
+            x = self.w.winfo_rootx() + self.w.winfo_width() + px(PAD_XS)
+            y = self.w.winfo_rooty() + px(PAD_XS)
+        except Exception:
+            return
+        try:
+            self.win = tk.Toplevel(self.w)
+            self.win.wm_overrideredirect(True)
+            self.win.wm_geometry("+%d+%d" % (x, y))
+            tk.Label(self.win, text=self.text, bg="#FFFFE1", fg=C_TEXT_HI,
+                     font=FONT_SMALL, bd=1, relief="solid",
+                     padx=px(PAD_S), pady=px(PAD_XS)).pack()
+        except Exception:
+            self.win = None
+
+    def _hide(self, _e=None):
+        if self.win is not None:
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            self.win = None
+
+
+class RailItem(tk.Frame):
+    """左侧竖栏里的一项 —— 图标 + 选中时左沿 2px 竖条 (Arduino 的 activityBar)。
+
+    为什么自绘 (tk.Frame + tk.Label) 而不是 ttk.Button:
+      · activityBar 的选中标记是**贴着容器左沿的那条竖条**, 不是"整块变色" ——
+        ttk 按钮的样式挂在主题 element 上, 做不出这种溢出到控件外的标记;
+      · 图标是画好的位图 (_icon_ppm), 不用字体字符 —— U+25B6 这类符号在部分
+        字体下会被渲染成彩色 emoji, 不可控。
+
+    代价: 不进 ttk 的焦点环, Tab 键跳不到。可接受 —— 切页在「工具」菜单里没有
+    对应项, 但竖栏常驻可见, 鼠标一步就到。
+    """
+
+    def __init__(self, master, icon, tip, command, n=None):
+        tk.Frame.__init__(self, master, bg=C_RAIL_BG)
+        self._cmd = command
+        self._active = False
+        self._n = n or px(28)
+        # 三档各一张图: 未选中 / 悬停 / 选中。色差不大, 但正是这三档把
+        # "哪个是当前页"和"鼠标停在哪个上"分清楚了。
+        self._imgs = {}
+        for key, fg in (("dim", C_RAIL_DIM), ("hover", C_RAIL_FG), ("on", C_RAIL_FG)):
+            im = tk.PhotoImage(data=_icon_ppm(self._n, icon, fg, C_RAIL_BG))
+            _ROUND_IMGS.append(im)          # ★ 必须留引用, 否则 GC 后是黑块
+            self._imgs[key] = im
+        # 左沿 2px 竖条: 平时与栏底同色 —— **纯占位**, 不然选中时图标会左右横跳
+        self.marker = tk.Frame(self, width=px(2), bg=C_RAIL_BG)
+        self.marker.pack(side="left", fill="y")
+        self.lbl = tk.Label(self, bg=C_RAIL_BG, bd=0, highlightthickness=0,
+                            image=self._imgs["dim"])
+        # 竖向 padding 撑出 Arduino 那种"一项占一格"的疏朗间距
+        self.lbl.pack(side="left", fill="both", expand=True,
+                      pady=px(PAD_S) + px(PAD_XS))
+        for w in (self, self.lbl):
+            w.configure(cursor="hand2")
+            w.bind("<Button-1>", lambda _e: self._cmd())
+            w.bind("<Enter>", lambda _e: self._hover(True))
+            w.bind("<Leave>", lambda _e: self._hover(False))
+        # tooltip 只绑在图标标签上 —— 绑到整项的话, 鼠标从边框移进图标会先给
+        # frame 发 <Leave>, 提示条会闪一下
+        _Tip(self.lbl, tip)
+
+    def _hover(self, on):
+        if self._active:                 # 选中项不参与悬停 (它已经够醒目)
+            return
+        self.lbl.configure(image=self._imgs["hover" if on else "dim"])
+
+    def set_active(self, on):
+        """选中 = 左沿竖条点亮 + 图标转深色。背景**不变** (实拍如此)。"""
+        self._active = bool(on)
+        self.marker.configure(bg=C_RAIL_MARK if self._active else C_RAIL_BG)
+        self.lbl.configure(image=self._imgs["on" if self._active else "dim"])
+
+
+class WorkArea(tk.Frame):
+    """工作区 = 顶部工具栏 + 左侧页面竖栏 + 内容区。
+
+    照 Arduino IDE 2.x 的骨架 (它是 VS Code / Theia 那一套):
+
+        ┌──────────────────────────────────────────────┐
+        │ [●][●]   [串口 ▾]                       [✓]  │  顶部工具栏 (#006D70)
+        ├────┬─────────────────────────────────────────┤
+        │ ▍  │                                          │
+        │ ▏  │              内容区                       │  左侧页面竖栏 (#ECF1F1)
+        │ ▎  │                                          │
+        └────┴─────────────────────────────────────────┘
+
+    为什么把页面切换从顶部搬到左侧 (原先是通栏的横向页签):
+      · 横向页签吃掉一整行**竖向**空间, 而竖向正是这个程序最缺的 —— 三个页面
+        全是"上面一张表 + 下面一大片"的形状;
+      · 竖栏只占一列, 而且切换目标**永远在同一位置**, 不用先在顶行找;
+      · 这正是 Arduino 自己的做法 —— 实拍确认它的页面切换就在左侧竖栏。
+
+    对外接口跟 ttk.Notebook 刻意做得接近, 少改调用方:
+        add(frame, text, icon)   加一页 (icon = _ICONS 里的名字, 决定竖栏图标)
+        select(frame)            切页 / 不传参则返回当前页
+        select_index(i)          按序号切页
     """
 
     def __init__(self, master, on_change=None, **kw):
-        super().__init__(master, bg=C_FIELD, **kw)
+        tk.Frame.__init__(self, master, bg=C_FIELD, **kw)
         self._on_change = on_change
-        self._pages = []            # [(frame, holder, bar, lbl, sep)]
+        self._pages = []            # [(frame, item)]
         self._current = None
 
-        # 页签条 —— 上留 px(PAD_S) 的呼吸, 左边留 px(PAD_M), 免得第一个页签像被窗口裁掉
-        self._strip = tk.Frame(self, bg=C_TABSTRIP)
-        self._strip.pack(fill="x", pady=(px(PAD_S), 0))
-        tk.Frame(self._strip, bg=C_TABSTRIP, height=px(PAD_S)).pack(side="left")
-        # 条带下沿 1px (VS Code 的 editorGroup.border)
-        tk.Frame(self, height=1, bg=C_BORDER_2).pack(fill="x")
-        # 内容区
-        self.body = tk.Frame(self, bg=C_FIELD)
-        self.body.pack(fill="both", expand=True)
+        # ---- ① 顶部工具栏 ----
+        # 工具区 (圆形 连接/断开 + 串口框) 由 App 往 self.tools 里填。
+        # 照 Arduino: 工具按钮挂在工具栏条上, 与页面无关 —— 切页它不动。
+        top = tk.Frame(self, bg=C_TOPBAR)
+        top.pack(fill="x")
+        self.tools = tk.Frame(top, bg=C_TOPBAR)
+        self.tools.pack(side="left", padx=(px(PAD_M), px(PAD_M)), pady=px(PAD_XS) + 1)
+        # 工具栏最右侧: 圆形状态徽标 (✓ 已连接 / ✕ 未连接)。
+        # 只显示不可点 —— 连接/断开是左边那两个圆按钮的事, 这里只回答"现在是哪种状态"。
+        self._badge_n = px(26)
+        self._badge = {}
+        # 两种状态共用同一个**浅色圆底** (#7FCBCD), 只换里面的图形:
+        #   已连接 = 蓝对勾 ✓   未连接 = 蓝叉 ✕
+        # ⚠ 图形色用 C_ACCENT (#008184) 而不是 C_TOOL_FG (#006D70) —— 用户要的是
+        #   "蓝叉", #006D70 偏墨绿, #008184 才是 Arduino 调色板里最蓝的那个。
+        _bpad = int(self._badge_n * 0.22)
+        for key, shape in (("on", "check"), ("off", "cross")):
+            im = tk.PhotoImage(data=_rr_ppm(self._badge_n, self._badge_n,
+                                            self._badge_n / 2.0,
+                                            _rgb(C_TOOL_BG), _rgb(C_TOOL_BG),
+                                            _rgb(C_TOPBAR),
+                                            mark=(shape, C_ACCENT, _bpad)))
+            _ROUND_IMGS.append(im)
+            self._badge[key] = im
+        self.lbl_badge = tk.Label(top, bg=C_TOPBAR, bd=0, highlightthickness=0,
+                                  image=self._badge["off"])
+        self.lbl_badge.pack(side="right", padx=(0, px(PAD_M)))
+        tk.Frame(self, height=1, bg=C_TOPBAR_LN).pack(fill="x")
 
-    def add(self, frame, text):
-        """加一页。frame 会被放进内容区, 同一时刻只有一页挂在上面。"""
-        # 页签之间的 1px 竖分隔线 (第一个不加 —— 它左边是条带留白, 有它就多余)
-        sep = None
-        if self._pages:
-            sep = tk.Frame(self._strip, bg=C_BORDER_2, width=1)
-            sep.pack(side="left", fill="y")
+        # ---- ② 主体: 左侧页面竖栏 + 内容区 ----
+        mid = tk.Frame(self, bg=C_FIELD)
+        mid.pack(fill="both", expand=True)
+        self._rail = tk.Frame(mid, bg=C_RAIL_BG, width=px(C_RAIL_W))
+        self._rail.pack(side="left", fill="y")
+        # ★ 关掉几何传播 —— 否则竖栏会被里面那个 26px 的图标撑开/缩窄, 几个页面的
+        #   图标宽度略有差异时, 竖栏宽度还会跟着跳。
+        self._rail.pack_propagate(False)
+        tk.Frame(mid, width=1, bg=C_BORDER).pack(side="left", fill="y")
+        self.body = tk.Frame(mid, bg=C_FIELD)
+        self.body.pack(side="left", fill="both", expand=True)
 
-        holder = tk.Frame(self._strip, bg=C_TABSTRIP)
-        holder.pack(side="left", fill="y")
-        # 顶部 2px 描边 —— 只给激活项着色, 平时与条带同色 (占位, 免得切换时页签跳动)
-        bar = tk.Frame(holder, height=2, bg=C_TABSTRIP)
-        bar.pack(fill="x")
-        lbl = tk.Label(holder, text=text.strip(), bg=C_TABSTRIP, fg=C_TAB_OFF_FG,
-                       font=FONT_UI, padx=px(PAD_L) + px(PAD_XS), pady=px(PAD_S) + 3)
-        lbl.pack(fill="both", expand=True)
-
-        # 整块都可点 (描边/文字/容器), 否则"点边上没反应"很恼人
-        for w in (holder, bar, lbl):
-            w.bind("<Button-1>", lambda _e, f=frame: self.select(f))
-        # 未选中时悬停浮现底色 (现代 UI 的通用反馈)
-        for w in (holder, lbl):
-            w.bind("<Enter>", lambda _e, f=frame: self._hover(f, True))
-            w.bind("<Leave>", lambda _e, f=frame: self._hover(f, False))
-
-        self._pages.append((frame, holder, bar, lbl, sep))
+    def add(self, frame, text, icon=None):
+        """加一页。frame 放进内容区, 同一时刻只有一页挂在上面。"""
+        item = RailItem(self._rail, icon or "ic_chip", text,
+                        lambda f=frame: self.select(f))
+        item.pack(fill="x")
+        self._pages.append((frame, item))
         if self._current is None:
             self.select(frame)
         return frame
-
-    def _hover(self, frame, on):
-        """悬停反馈 —— 只对**未选中**的页签生效 (选中的已经够醒目了)。"""
-        if frame is self._current:
-            return
-        for f, holder, bar, lbl, sep in self._pages:
-            if f is frame:
-                holder.configure(bg=C_TAB_HOVER if on else C_TABSTRIP)
-                lbl.configure(bg=C_TAB_HOVER if on else C_TABSTRIP)
 
     def select(self, frame=None):
         """切页。不传参 → 返回当前页 (跟 Notebook.select() 一个用法)。"""
         if frame is None:
             return self._current
         self._current = frame
-        for f, holder, bar, lbl, sep in self._pages:
+        for f, item in self._pages:
             active = (f is frame)
-            # 激活项 = 内容区同色 (视觉上"长"进内容) + 顶部品牌色描边;
-            # 未激活 = 条带同色 (融进条带, 只剩文字 + 竖分隔线)。**不加粗** ——
-            # 中文加粗显笨重, 现代 IDE 靠底色/描边区分就够。
-            bg = C_FIELD if active else C_TABSTRIP
-            holder.configure(bg=bg)
-            lbl.configure(bg=bg, fg=C_TEXT if active else C_TAB_OFF_FG,
-                          font=FONT_UI)
-            bar.configure(bg=C_ACCENT if active else bg)
+            item.set_active(active)
             if active:
                 f.pack(fill="both", expand=True)
             else:
@@ -1412,6 +1757,13 @@ class FlatTabs(tk.Frame):
     def select_index(self, i):
         if 0 <= i < len(self._pages):
             self.select(self._pages[i][0])
+
+    def set_online(self, on):
+        """工具栏右侧那个圆徽标: ✓ 已连接 / ✕ 未连接"""
+        try:
+            self.lbl_badge.configure(image=self._badge["on" if on else "off"])
+        except Exception:
+            pass
 
 
 class App(tk.Tk):
@@ -1427,6 +1779,10 @@ class App(tk.Tk):
         self.local_dir = self.cfg.get("local_dir") or os.getcwd()
         self.dev_dir = "/"
 
+        # ⚠ 根窗口的默认底色是系统灰 (#F0F0F0)。任何**没被控件盖住**的地方都会
+        #   露出它 —— 以前顶部那块「连接」LabelFrame 正好挡着, 删掉之后就露出来了
+        #   (表现为菜单栏下面凭空多出一条灰带)。统一成内容色, 一劳永逸。
+        self.configure(bg=C_FIELD)
         self.title(tr("title"))
         set_window_icon(self)              # 标题栏 / 任务栏图标
         self._setup_geometry()
@@ -1499,80 +1855,47 @@ class App(tk.Tk):
             except Exception:
                 continue
         self._style_setup(st)
+        self._build_menu()
 
-        # ---- 顶部: 连接栏 / top bar ----
-        top = ttk.LabelFrame(self, text=tr("connection"), padding=px(PAD_M),
-                             style="Chrome.TLabelframe")
-        top.pack(fill="x", padx=px(8), pady=(px(8), px(4)))
-
-        ttk.Label(top, text=tr("port"), style="Chrome.TLabel").grid(
-            row=0, column=0, sticky="w")
-        self.cb_port = ttk.Combobox(top, width=22, state="readonly")
-        self.cb_port.grid(row=0, column=1, padx=(px(4), px(6)))
-
-        ttk.Button(top, text=tr("refresh"), width=7, style="Chrome.TButton",
-                   command=self.refresh_ports).grid(row=0, column=2)
-
-        ttk.Label(top, text=tr("chip"), style="Chrome.TLabel").grid(row=0, column=3,
-                                             padx=(px(12), px(0)), sticky="w")
-        # ★ **只读显示, 不给手选** —— 芯片型号是连上后探测出来的, 手选没有意义:
-        #   ① 这个值**不驱动任何行为**。烧写时 esptool 自己会认芯片
-        #      (`esp.CHIP_NAME` → 日志那行"芯片: ESP32-S3"), 当年手选的值
-        #      唯一去处就是日志里那句"连接芯片 (xxx)" —— 纯装饰, 而且**会说谎**。
-        #   ② 手选本来是给"读不到芯片"当后备的, 但那种情况本来也不该烧写,
-        #      留个能选的框只会让人以为自己选对了。
+        # ---- 顶部工具栏 ----
+        # 只留**设备相关**的三件: 连接 / 断开 / 串口选择 (照 Arduino —— 它的工具栏
+        # 左边是"对当前项目做什么", 右边是"对着哪台设备做", 而 bTool 没有项目概念,
+        # 所以只剩设备那一半)。芯片型号和连接状态在**状态栏**。
         self.detected_chip = ""            # 连上探测到的, 空 = 还没认出来
         self.repl_ok = False               # 连上的板子有 MicroPython 吗 (决定文件管理能不能用)
-        self.lbl_chip = ttk.Label(top, width=13, foreground=C_MUTED,
-                                  style="Chrome.TLabel")
-        self.lbl_chip.grid(row=0, column=4, padx=(px(4), px(6)), sticky="w")
-        self._render_chip()
 
-        ttk.Label(top, text=tr("language"), style="Chrome.TLabel").grid(row=0, column=5,
-                                                 padx=(px(8), px(0)), sticky="w")
-        self.cb_lang = ttk.Combobox(
-            top, width=8, state="readonly",
-            values=[LANG[k]["lang_name"] for k in ("zh", "en")])
-        self.cb_lang.set(LANG[_LANG_ID]["lang_name"])
-        self.cb_lang.grid(row=0, column=6, padx=(px(4), px(6)))
-        self.cb_lang.bind("<<ComboboxSelected>>", self.on_lang_change)
+        # ---- 中部: 工作区 (顶部工具栏 + 左侧页面竖栏 + 内容) ----
+        # 页面切换在**左侧竖栏**里, 照 Arduino (实拍确认它的页面切换也在左侧)。
+        # 原先是一条通栏的横向页签, 吃掉一整行竖向空间 —— 而三个页面全是
+        # "上面一张表 + 下面一大片"的形状, 竖向正是最缺的。
+        wa = WorkArea(self, on_change=self._on_tab_changed)
+        wa.pack(fill="both", expand=True)
+        self.wa = wa
 
-        self.btn_conn = ttk.Button(top, text=tr("connect"), width=10,
-                                   style="Accent.TButton", command=self.on_connect)
-        self.btn_conn.grid(row=0, column=7, padx=(px(12), px(4)))
-        self.btn_disc = ttk.Button(top, text=tr("disconnect"), width=10,
-                                   style="Chrome.TButton",
-                                   command=self.on_disconnect, state="disabled")
-        self.btn_disc.grid(row=0, column=8)
+        # ---- 工具栏左侧: 圆形 连接/断开 + 串口选择框 ----
+        # 照 Arduino: 工具按钮跟设备相关, 挂在工具栏条上, 与页面无关 (切页它不动)。
+        self.btn_connect = CircleButton(wa.tools, "connect", C_TOPBAR,
+                                        self.on_connect)
+        self.btn_connect.pack(side="left")
+        self.btn_disconnect = CircleButton(wa.tools, "disconnect", C_TOPBAR,
+                                           self.on_disconnect)
+        self.btn_disconnect.pack(side="left", padx=(px(PAD_XS), px(PAD_L)))
+        # 串口选择框 (Arduino 的 toolbar.dropdown: 白底 + #DAE3E3 边框 + #4E5B61 字)
+        self.cb_port = ttk.Combobox(wa.tools, width=20, state="readonly",
+                                    style="Strip.TCombobox")
+        self.cb_port.pack(side="left")
+        self.cb_port.bind("<<ComboboxSelected>>", self._on_combo_port)
 
-        # ★ 连接状态指示灯 —— 光靠按钮灰显/状态栏小字太不显眼, 这里给一个
-        #   带颜色的粗体指示。用 tk.Label 而不是 ttk.Label: 某些 ttk 主题
-        #   会忽略 foreground。
-        self.lbl_conn = tk.Label(top, bg=C_CHROME, text=tr("not_connected"),
-                                 fg=C_DANGER, font=FONT_UI_BOLD)
-        self.lbl_conn.grid(row=0, column=9, padx=(px(18), px(0)), sticky="w")
-
-        # ---- 中部: 三个选项卡 —— 烧写 / REPL 终端 / 文件管理 ----
-        # 三者互不干扰, 各自占满整个区域。原来是"烧写在上、REPL 常驻在下",
-        # 挤在同一屏里 → 两个都变小, 而且 REPL 还要和烧写页抢竖向空间。
-        # 页签条**通栏** (不留左右边距) —— 它要像 IDE 那样横贯整个窗口;
-        # 各页自己的内容边距在各页面里 (各自都有 padx)。
-        nb = FlatTabs(self, on_change=self._on_tab_changed)
-        nb.pack(fill="both", expand=True, pady=(px(PAD_XS), 0))
-        self.nb = nb
-
-        self.tab_flash = ttk.Frame(nb.body)
-        self.tab_repl = ttk.Frame(nb.body)
-        self.tab_files = ttk.Frame(nb.body)
-        nb.add(self.tab_flash, text=tr("tab_flash"))
-        nb.add(self.tab_repl, text=tr("tab_repl"))
-        nb.add(self.tab_files, text=tr("tab_files"))
+        self.tab_flash = ttk.Frame(wa.body)
+        self.tab_repl = ttk.Frame(wa.body)
+        self.tab_files = ttk.Frame(wa.body)
+        wa.add(self.tab_flash, text=tr("tab_flash"), icon="ic_flash")
+        wa.add(self.tab_repl, text=tr("tab_repl"), icon="ic_term")
+        wa.add(self.tab_files, text=tr("tab_files"), icon="ic_file")
 
         self._build_flash_tab()
         self._build_repl_tab()
-        self._build_files_tab()
-
-        # ---- 状态栏 / status bar ----
+        self._build_files_tab()        # ---- 状态栏 / status bar ----
         # 「关于」放这儿: 连接栏那一排已经很挤了, 而关于是偶尔点一次的东西。
         # 先 pack 按钮再 pack 状态文字 —— 否则文字会把整行占满, 按钮被挤没。
         # ★ 状态栏用 Arduino 的 statusBar 配色: **深 teal 底 + 浅字** —— 这是它
@@ -1587,9 +1910,21 @@ class App(tk.Tk):
                    command=self.on_about).pack(side="right",
                                                padx=(px(PAD_XS), px(PAD_S)),
                                                pady=px(PAD_XS))
+        # 串口选择挪进菜单之后, 必须有个地方**常驻**显示"现在对着哪个口" ——
+        # 否则就得开菜单才知道, 那就退化成了"藏起来的设置"。
+        # ★ 连接状态指示: 带颜色的圆点 + 粗体。
+        #   原来它在顶部工具栏里; 那一栏删掉后搬到这里 —— 状态栏是常驻的,
+        #   放这儿比放在会被删掉的工具栏上更合理。
+        #   用 tk.Label 而不是 ttk.Label: 某些 ttk 主题会忽略 foreground。
+        self.lbl_dot = tk.Label(row, bg=C_BAR, text="●", fg=C_DANGER,
+                                font=FONT_UI_BOLD)
+        self.lbl_dot.pack(side="left", padx=(px(PAD_M), px(PAD_XS)), pady=px(PAD_XS))
+        self.var_devline = tk.StringVar(value="")
+        ttk.Label(row, textvariable=self.var_devline, style="Status.TLabel",
+                  anchor="w").pack(side="left", pady=px(PAD_XS))
         ttk.Label(row, textvariable=self.var_status, style="Status.TLabel",
                   anchor="w").pack(side="left", fill="x", expand=True,
-                                   padx=px(PAD_M), pady=px(PAD_XS))
+                                   padx=px(PAD_L), pady=px(PAD_XS))
 
     def _style_setup(self, st):
         """把主题默认外观改成这套界面的统一规范。
@@ -1664,6 +1999,22 @@ class App(tk.Tk):
                arrowcolor=[("active", C_ACCENT)])
         st.map("TEntry", foreground=[("disabled", C_MUTED)])
 
+        # 页签条上的串口框 —— 同一套圆角图, 只是 **outside 换成条带色**,
+        # 否则四角会露出白色方块 (outside 是烤进图里的, 容器色必须匹配)。
+        install_round_field(st, "Strip.TCombobox", R4, C_TOPBAR, {
+            "":         (C_FIELD,  C_BORDER),
+            "focus":    (C_FIELD,  C_ACCENT_LT),
+            "disabled": (C_WIDGET, C_BORDER),
+        }, "Combobox.textarea",
+            (("Combobox.downarrow", {"side": "right", "sticky": "ns"}),))
+        st.configure("Strip.TCombobox", fieldbackground=C_FIELD,
+                     background=C_FIELD, foreground=C_TEXT,
+                     bordercolor=C_BORDER, lightcolor=C_BORDER,
+                     darkcolor=C_BORDER, padding=(px(PAD_S), px(PAD_XS)))
+        st.map("Strip.TCombobox",
+               fieldbackground=[("readonly", C_FIELD), ("disabled", C_WIDGET)],
+               foreground=[("disabled", C_MUTED)])
+
         # ---- 列表: 行高与字号 (默认 rowheight 配 9pt 中文偏挤) ----
         st.configure("Treeview", rowheight=px(24), font=FONT_UI,
                      background=C_FIELD, fieldbackground=C_FIELD,
@@ -1709,11 +2060,13 @@ class App(tk.Tk):
         #   只在前两级这么干; 输入框和第三级才留一根 1px 发丝线。
 
         # 第二级 · 动作按钮 · 放在白页面/面板上
+        # ⚠ 禁用态的填充别用"和容器同色" —— 那样整块消失只剩一圈 1px 描边,
+        #   圆角处看着像缺口 (实测)。用 C_WIDGET 各差一档, 形状才看得出来。
         install_round_button(st, "TButton", R4, C_FIELD, {
             "":         (C_ACCENT_T2, C_ACCENT_T2),   # 淡青实底, 无描边
             "active":   (C_ACCENT_LT, C_ACCENT_LT),   # 悬停 → Arduino 原值 #7FCBCD
             "pressed":  (C_ACCENT,    C_ACCENT),
-            "disabled": (C_FIELD,     C_BORDER),
+            "disabled": (C_WIDGET,    C_BORDER),
         }, (px(PAD_M), px(PAD_XS)), C_ACCENT_DK)
 
         # 第二级 · 落在 #ECF1F1 的框上 (顶部连接栏那排)
@@ -1721,7 +2074,7 @@ class App(tk.Tk):
             "":         (C_ACCENT_T2, C_ACCENT_T2),
             "active":   (C_ACCENT_LT, C_ACCENT_LT),
             "pressed":  (C_ACCENT,    C_ACCENT),
-            "disabled": (C_CHROME,    C_BORDER),
+            "disabled": (C_WIDGET,    C_BORDER),
         }, (px(PAD_M), px(PAD_XS)), C_ACCENT_DK)
 
         # 第三级 · 低频/辅助按钮: **无实底**, 只有青字 (Arduino 的 secondaryButton)。
@@ -1731,7 +2084,7 @@ class App(tk.Tk):
             "":         (C_FIELD,    C_BORDER),
             "active":   (C_HILITE,   C_BORDER_2),
             "pressed":  (C_BORDER,   C_ACCENT),
-            "disabled": (C_FIELD,    C_CHROME),
+            "disabled": (C_WIDGET,   C_BORDER),
         }, (px(PAD_M), px(PAD_XS)), C_ACCENT)
 
         # ★ 第一级 · 主操作 (连接 / 烧写): Arduino 的 button.background
@@ -1740,7 +2093,7 @@ class App(tk.Tk):
             "":         (C_ACCENT,    C_ACCENT),   # 描边=填充 ⇒ 无边框, 纯平
             "active":   (C_ACCENT_DK, C_ACCENT_DK),
             "pressed":  (C_ACCENT_DK, C_ACCENT_DK),
-            "disabled": (C_CHROME,    C_CHROME),
+            "disabled": (C_WIDGET,   C_BORDER),
         }, (px(PAD_L), px(PAD_S)), C_WIDGET)
 
         # 同样第一级, 但落在**白页面**上的主按钮 (擦除并烧写)
@@ -1748,7 +2101,7 @@ class App(tk.Tk):
             "":         (C_ACCENT,    C_ACCENT),
             "active":   (C_ACCENT_DK, C_ACCENT_DK),
             "pressed":  (C_ACCENT_DK, C_ACCENT_DK),
-            "disabled": (C_CHROME,    C_CHROME),
+            "disabled": (C_WIDGET,   C_BORDER),
         }, (px(PAD_L), px(PAD_S)), C_WIDGET)
 
         # 状态栏上的按钮 (深 teal 底) —— 平时跟底色一样, 悬停才浮出来
@@ -1769,11 +2122,117 @@ class App(tk.Tk):
                      darkcolor=C_ACCENT_DK, thickness=px(16))
         st.configure("Vertical.TSeparator", background=C_BORDER)
 
+    # ------------------------------------------------------------------
+    # 菜单栏 / menu bar
+    # ------------------------------------------------------------------
+    GITHUB = "https://github.com/bobyuhit/bTool"
+
+    def _build_menu(self):
+        """顶部菜单栏 —— 比照 Arduino IDE, 但按 bTool 自己的功能裁剪过。
+
+        三栏: 「工具」「设置」「帮助」。
+        · 不要「文件」: bTool 没有"新建/打开/保存/另存"这类文档操作; 固件列表的增删
+          本来就有一排按钮, 再在菜单里做一遍是重复入口。
+        · 不要「编辑」: 没有代码可编辑 (Arduino 的编辑栏是给编辑器的)。
+        · 「设置」对应 Arduino 的「首选项」, 装的是用户偏好 (现在只有语言;
+          以后加界面比例/主题也放这)。
+        · 设备类操作全在「工具」, 对应 Arduino 工具栏的 端口/串口监视器/获得开发板信息。
+        """
+        bar = tk.Menu(self)
+        self.menubar = bar
+
+        # ---- 工具 ----
+        # 只分三块, 别再多插分隔线 —— 一块两三行还各插一条会碎得很难扫。
+        t = tk.Menu(bar, tearoff=0)      # tearoff=0: 去掉顶上那条虚线"撕离"项
+        # 「串口」放在工具菜单里 (Arduino 的「工具 → 端口」也是子菜单)。
+        # 内容是**动态**的: 每次扫到端口就重建一次, 见 _apply_ports。
+        # 当前选中的口用单选圆点标出 —— 不用开下拉也看得出连的是哪个口。
+        self.var_port = tk.StringVar(value="")   # 当前选中的口 (整条显示串, 如 "COM5  (CH343)")
+        self.var_ports = []                      # 扫到的口 (显示串) —— 两者都由 _apply_ports 维护
+        self.menu_ports = tk.Menu(t, tearoff=0)
+        t.add_cascade(label=tr("port_menu"), menu=self.menu_ports)
+        t.add_separator()
+        t.add_command(label=tr("connect"), accelerator="Ctrl+K",
+                      command=self.on_connect)
+        self.mi_conn = t.index("end")        # 记下索引: 连接/断开的可点状态要随
+        t.add_command(label=tr("disconnect"), command=self.on_disconnect)
+        self.mi_disc = t.index("end")        # 连接状态变 (按钮删了, 改由菜单项反映)
+        t.add_separator()
+        t.add_command(label=tr("read_chip"), accelerator="Ctrl+I",
+                      command=self.on_read_chip)
+        bar.add_cascade(label=tr("menu_tools"), menu=t)
+
+        # ---- 设置 ----
+        # 对应 Arduino 的「文件 → 首选项」。语言是一年改一次的设置, 放这里而不是
+        # 占工具栏位置。以后加"界面比例""主题"同样归这一栏。
+        s = tk.Menu(bar, tearoff=0)
+        lm = tk.Menu(s, tearoff=0)
+        self.var_lang_menu = tk.StringVar(value=_LANG_ID)
+        for k in ("zh", "en"):
+            lm.add_radiobutton(label=LANG[k]["lang_name"], value=k,
+                               variable=self.var_lang_menu,
+                               command=lambda kk=k: self._switch_lang_checked(kk))
+        s.add_cascade(label=tr("language"), menu=lm)
+        bar.add_cascade(label=tr("menu_settings"), menu=s)
+
+        # ---- 帮助 ----
+        h = tk.Menu(bar, tearoff=0)
+        h.add_command(label=tr("user_manual"),
+                      command=lambda: self._open_doc("用户手册.md"))
+        h.add_command(label=tr("dev_notes"),
+                      command=lambda: self._open_doc("开发说明.md"))
+        h.add_separator()
+        h.add_command(label=tr("about_app"), command=self.on_about)
+        bar.add_cascade(label=tr("menu_help"), menu=h)
+
+        self.config(menu=bar)
+        self._bind_accels()
+
+    def _open_doc(self, name):
+        """打开在线文档。
+
+        ⚠ 只能开**在线**的: 打包成单文件 exe 后, 仓库里的 .md 根本没跟着打进去,
+          指本地路径在 exe 里必然是死链。
+        """
+        import webbrowser
+        try:
+            webbrowser.open("%s/blob/master/%s" % (self.GITHUB, name))
+        except Exception as e:
+            messagebox.showerror(APP_NAME, str(e))
+
+    def _bind_accels(self):
+        """绑定菜单上标的快捷键。
+
+        ★ 终端有焦点时**一律让路** —— Ctrl+C / Ctrl+D 是 MicroPython 的 readline
+          在用的 (中断 / EOF), 被菜单抢走就没法打断板子上跑的程序了。菜单里标着的
+          快捷键只是一份"提示", 真正的取舍在这里。
+        """
+        def bind(seq, fn):
+            def handler(_e):
+                try:
+                    if self.focus_get() is self.txt_term:
+                        return None            # 不拦, 原样发给板子
+                except Exception:
+                    pass
+                fn()
+                return "break"
+            self.bind_all(seq, handler)
+
+        bind("<Control-o>", self.on_add_fw)
+        bind("<Control-k>", self.on_connect)
+        bind("<Control-i>", self.on_read_chip)
+        bind("<F5>", self.refresh_ports)
+
+    def _switch_lang_checked(self, lang_id):
+        """菜单里的语言单选 —— 跟旧的下拉一样走 _switch_lang, 但要防重复触发。"""
+        if lang_id != _LANG_ID:
+            self._switch_lang(lang_id)
+
     def _on_tab_changed(self, _evt=None):
         # 切到 REPL 页时把键盘焦点交给终端 —— 否则光标不闪、敲字没反应
         # (Text 控件只在有焦点时才显示插入光标)
         try:
-            if self.nb.select() is self.tab_repl:
+            if self.wa.select() is self.tab_repl:
                 self.txt_term.focus_set()
         except Exception:
             pass
@@ -1781,20 +2240,6 @@ class App(tk.Tk):
     # ---- REPL 页 / repl tab ----
     def _build_repl_tab(self):
         p = self.tab_repl
-
-        # REPL 自己的波特率 —— 跟"烧写波特率"是两回事:
-        #   烧写波特率只在烧写时用 (esptool), REPL 波特率在连接设备时用。
-        #   两者可以不同 (例: 烧写 921600 求快, REPL 用固件实际的 115200)。
-        rb = ttk.Frame(p)
-        rb.pack(fill="x", padx=px(8), pady=(px(8), px(4)))
-        ttk.Label(rb, text=tr("repl_baud")).pack(side="left")
-        self.cb_replbaud = ttk.Combobox(
-            rb, width=10, state="readonly",
-            values=["115200", "230400", "460800", "921600"])
-        self.cb_replbaud.set(str(REPL_BAUD))
-        self.cb_replbaud.pack(side="left", padx=(px(4), px(6)))
-        ttk.Label(rb, text=tr("repl_baud_hint"),
-                  foreground=C_MUTED).pack(side="left")
 
         # ★ 终端区 —— **可直接在里面敲**, 没有单独的输入框。
         #   按键不本地插入, 而是原样发给板子; 屏幕上看到的字符是板子**回显**
@@ -2029,15 +2474,6 @@ class App(tk.Tk):
     # Tkinter has no global re-translate; rebuilding the UI is simpler than
     # tracking every widget.  Save state before, restore after.
 
-    def on_lang_change(self, _evt=None):
-        name = self.cb_lang.get()
-        for k, v in LANG.items():
-            if v["lang_name"] == name:
-                if k == _LANG_ID:
-                    return
-                self._switch_lang(k)
-                return
-
     def _switch_lang(self, lang_id):
         st = self._save_state()
         set_lang(lang_id)
@@ -2046,16 +2482,13 @@ class App(tk.Tk):
         self._build_ui()
         self._restore_state(st)
         self.title(tr("title"))
-        self.cb_lang.set(LANG[lang_id]["lang_name"])
         self._save_cfg()
 
     def _save_state(self):
         return {
             "repl": self.txt_term.get("1.0", "end-1c"),
-            "replbaud": self.cb_replbaud.get(),
             "flash_log": self.txt_flash.get("1.0", "end-1c"),
-            "port": self.cb_port.get(),
-            "ports": list(self.cb_port["values"]),
+            "port": self.var_port.get(),
             "fbaud": self.cb_fbaud.get(),
             "erase": self.var_erase.get(),
             "local_dir": self.var_local.get(),
@@ -2064,15 +2497,15 @@ class App(tk.Tk):
                         for i in self.tv_fw.get_children()],
             "dev_rows": [self.tv_dev.item(i, "values")
                          for i in self.tv_dev.get_children()],
-            "connected": self.btn_disc["state"] == "normal",
+            "connected": str(self.menu_tools.entrycget(self.mi_disc, "state")) == "normal",
             "pb": self.pb["value"],
         }
 
     def _restore_state(self, st):
-        if st["ports"]:
-            self.cb_port["values"] = st["ports"]
         if st["port"]:
-            self.cb_port.set(st["port"])
+            self.var_port.set(st["port"])
+            self._rebuild_port_menu()
+            self._render_dev()
         self.cb_fbaud.set(st["fbaud"])
         self.var_erase.set(st["erase"])
         self.var_local.set(st["local_dir"])
@@ -2088,7 +2521,6 @@ class App(tk.Tk):
         for row in st["dev_rows"]:
             self.tv_dev.insert("", "end", values=row)
 
-        self.cb_replbaud.set(st["replbaud"])
         if st["repl"]:
             self.txt_term.insert("end", st["repl"])
             # ★ 光标要跟到文末 —— 渲染是"在光标处画", 而往 end 插入
@@ -2103,15 +2535,12 @@ class App(tk.Tk):
         # 状态栏**不**沿用旧文字 —— 否则切完语言还留着上一门语言的句子。
         # 按当前状态重新生成一条本地化的。
         if st["connected"]:
-            self.btn_conn.configure(state="disabled")
-            self.btn_disc.configure(state="normal")
+            self.menu_tools.entryconfigure(self.mi_conn, state="disabled")
+            self.menu_tools.entryconfigure(self.mi_disc, state="normal")
             self.var_status.set(tr("connected_status", port=self.sm._port))
-            self.lbl_conn.configure(
-                text=tr("linked", port=self.sm._port, baud=self.sm._baud),
-                fg=C_OK)
         else:
             self.var_status.set(tr("ready"))
-            self.lbl_conn.configure(text=tr("not_connected"), fg=C_DANGER)
+        self._render_dev()
 
         self._sync_mode_ui()               # 「切回 REPL」按钮的可点状态
 
@@ -2223,11 +2652,12 @@ class App(tk.Tk):
             pass
 
     def _render_chip(self):
-        """按 detect 到的值刷新那个只读显示 (语言切换后也要重画)"""
-        try:
-            self.lbl_chip.configure(text=self.detected_chip or tr("chip_unknown"))
-        except Exception:
-            pass
+        """芯片型号变了 -> 重画状态栏那一行。
+
+        (原来它显示在顶部工具栏一个只读 Label 上; 那一栏已删, 现在并进状态栏,
+         和串口/连接状态排在一起。名字保留 _render_chip, 调用点不用动。)
+        """
+        self._render_dev()
 
     def _handle(self, kind, kw):
         if kind == "term":
@@ -2619,12 +3049,14 @@ class App(tk.Tk):
         self.busy = on
         self.configure(cursor="watch" if on else "")
         self.btn_flash.configure(state="disabled" if on else "normal")
-        # ⚠ 连接按钮不能无脑恢复成 normal —— 忙完之后如果还连着, 它必须是灰的,
-        #   否则会出现"已连接, 但『连接』按钮又能点"的怪状态。
+        self._render_dev()      # 忙的时候圆形按钮也要灰掉 (它自己看 self.busy)
+        # ⚠ 连接项不能无脑恢复成 normal —— 忙完之后如果还连着, 它必须是灰的,
+        #   否则会出现"已连接, 但『连接』又能点"的怪状态。
         if on:
-            self.btn_conn.configure(state="disabled")
+            self.menu_tools.entryconfigure(self.mi_conn, state="disabled")
         else:
-            self.btn_conn.configure(
+            self.menu_tools.entryconfigure(
+                self.mi_conn,
                 state="disabled" if self.sm.is_open else "normal")
 
     def need_conn(self):
@@ -2671,8 +3103,6 @@ class App(tk.Tk):
         c = self.cfg
         if c.get("flash_baud"):
             self.cb_fbaud.set(c["flash_baud"])
-        if c.get("repl_baud"):
-            self.cb_replbaud.set(c["repl_baud"])
 
     def _save_cfg(self):
         """把用户偏好写盘。存不成也不报错 —— 不该因为记偏好把程序搞崩。"""
@@ -2682,7 +3112,6 @@ class App(tk.Tk):
             "local_dir": self.local_dir,
             "port": self._port_name(),
             "flash_baud": self.cb_fbaud.get(),
-            "repl_baud": self.cb_replbaud.get(),
         })
 
     def on_close(self):
@@ -2738,15 +3167,17 @@ class App(tk.Tk):
         return ports
 
     def _apply_ports(self, ports):
-        """把扫到的列表填进下拉, 并决定选中哪个"""
-        had = self._port_name()                    # 当前下拉里选中的
-        names = [v.split()[0] for v in ports]
-        self.cb_port["values"] = ports
+        """把扫到的列表填进「工具 → 串口」子菜单, 并决定选中哪个。
 
-        # 选中项优先级: 当前选中的 > 存档里的 > 第一个。
-        # 端口号换 USB 口/重启后会变, 所以一律按**端口名**匹配, 不按序号。
-        # ★ 当前选中的口**拔掉了就空着**, 不跳到别的口上去 —— 否则插回来时
-        #   已经停在别的口上了, 用户还得手动找回来。
+        ★ 选中项优先级 (这套规则踩过坑, 别改): 当前选中的 > 存档里的 > 第一个。
+          端口号换 USB 口/重启后会变, 所以一律按**端口名**匹配, 不按序号。
+          当前选中的口**拔掉了就空着**, 不跳到别的口上去 —— 否则插回来时已经停在
+          别的口上了, 用户还得手动找回来。
+        """
+        had = self._port_name()                    # 当前选中的口
+        names = [v.split()[0] for v in ports]
+        self.var_ports = list(ports)
+
         gone = bool(had) and had not in names
         pick = None
         for want in ("" if gone else had, self.cfg.get("port") or ""):
@@ -2755,10 +3186,71 @@ class App(tk.Tk):
                 break
         if pick is None and not had and names:
             pick = names[0]                        # 本来就没选过 → 第一个
-        if pick:
-            self.cb_port.current(names.index(pick))
-        else:
-            self.cb_port.set("")                   # 没得选 → 清空, 不留拔掉的口
+        self.var_port.set(next((v for v in ports if v.split()[0] == pick), "") if pick
+                          else "")                 # 没得选 → 清空, 不留拔掉的口
+        self._rebuild_port_menu()
+        self._render_dev()
+
+    def _rebuild_port_menu(self):
+        """按 self.var_ports 重建「串口」子菜单 + 同步条带上那个框。
+
+        Arduino 也是这两个入口并存 (工具栏下拉 + 工具→端口), 共用同一份选中值。
+        """
+        try:
+            self.cb_port["values"] = self.var_ports
+            self.cb_port.set(self.var_port.get())
+        except Exception:
+            pass
+        m = self.menu_ports
+        m.delete(0, "end")
+        if not self.var_ports:
+            m.add_command(label=tr("no_ports"), state="disabled")
+            return
+        for v in self.var_ports:
+            m.add_radiobutton(label=v, value=v, variable=self.var_port,
+                              command=self._on_pick_port)
+        m.add_separator()
+        m.add_command(label=tr("refresh_ports"), accelerator="F5",
+                      command=self.refresh_ports)
+
+    def _on_combo_port(self, _evt=None):
+        """条带上的串口框换了选择"""
+        val = self.cb_port.get()
+        if val:
+            self.var_port.set(val)
+        self._on_pick_port()
+
+    def _on_pick_port(self):
+        """换串口 (菜单或条带上的框都走这里)"""
+        self._render_dev()
+        self._save_cfg()
+
+    def _render_dev(self):
+        """状态栏左侧常驻: 串口 · 波特率 · 连接状态"""
+        port = self._port_name() or tr("no_ports")
+        try:
+            linked = self.sm.is_open
+        except Exception:
+            linked = False
+        for w, fn in ((getattr(self, "lbl_dot", None), None),
+                      (getattr(self, "btn_connect", None), "conn"),
+                      (getattr(self, "btn_disconnect", None), "disc")):
+            if w is None:
+                continue
+            try:
+                if fn is None:
+                    w.configure(fg=C_WIDGET if linked else C_DANGER)
+                elif fn == "conn":
+                    w.set_enabled(not linked and not self.busy)
+                else:
+                    w.set_enabled(linked and not self.busy)
+                    self.wa.set_online(linked)
+            except Exception:
+                pass
+        self.var_devline.set("%s %s  %d  %s   %s %s" % (
+            tr("port_menu"), port, REPL_BAUD,
+            tr("link_up") if linked else tr("not_connected"),
+            tr("chip"), self.detected_chip or tr("chip_unknown")))
 
     def refresh_ports(self):
         """手动刷新 (按钮): 更新列表 + 报状态栏"""
@@ -2778,15 +3270,19 @@ class App(tk.Tk):
             pass
 
     def _port_name(self):
-        raw = self.cb_port.get().strip()
+        raw = (self.var_port.get() or "").strip()
         return raw.split()[0] if raw else ""
 
     def _repl_baud(self):
-        """REPL 面板上选的波特率; 取不到就回退默认。"""
-        try:
-            return int(self.cb_replbaud.get())
-        except (ValueError, AttributeError):
-            return REPL_BAUD
+        """REPL 连接的波特率 —— **固定 REPL_BAUD, 不给用户改**。
+
+        为什么不做成可选: MicroPython 的 REPL 波特率不是用户程序决定的 (Arduino 的
+        `Serial.begin(9600)` 才是那种), 它在**固件编译时**就定死了 (ESP32 端口的
+        CONFIG_ESP_CONSOLE_UART_BAUDRATE, bPuppy 是 115200)。所以它跟 Arduino 的
+        "上传速度"同类 (板子属性, 界面不给改), 而不是"串口监视器波特率"。
+        原先是终端页顶部一个下拉, 已删 —— 改成设置项没意义, 一年也动不到一次。
+        """
+        return REPL_BAUD
 
     def on_connect(self):
         port = self._port_name()
@@ -2827,12 +3323,10 @@ class App(tk.Tk):
         self.run_bg(work)
 
     def _after_connect(self):
-        self.btn_conn.configure(state="disabled")
-        self.btn_disc.configure(state="normal")
+        self.menu_tools.entryconfigure(self.mi_conn, state="disabled")
+        self.menu_tools.entryconfigure(self.mi_disc, state="normal")
         self.var_status.set(tr("connected_status", port=self.sm._port))
-        self.lbl_conn.configure(          # 指示灯: 红 → 绿
-            text=tr("linked", port=self.sm._port, baud=self.sm._baud),
-            fg=C_OK)
+        self._render_dev()                 # 状态圆点: 红 → 白
         self._start_reader()               # 终端实时回显
         self.txt_term.focus_set()
         self._sync_mode_ui()
@@ -2855,10 +3349,10 @@ class App(tk.Tk):
 
     def _after_disconnect(self):
         self._stop_reader()
-        self.btn_conn.configure(state="normal")
-        self.btn_disc.configure(state="disabled")
+        self.menu_tools.entryconfigure(self.mi_conn, state="normal")
+        self.menu_tools.entryconfigure(self.mi_disc, state="disabled")
         self.var_status.set(tr("disconnected"))
-        self.lbl_conn.configure(text=tr("not_connected"), fg=C_DANGER)
+        self._render_dev()
         self.tv_dev.delete(*self.tv_dev.get_children())
         self._sync_mode_ui()               # 没连接 → 「切回 REPL」置灰
         self._sync_file_ui()               # 没连接 → 文件管理置灰

@@ -184,6 +184,9 @@ C_HILITE    = "#DAE3E3"   # menu.selectionBackground / 悬停底
 # 斑马纹。但这儿的表格一行跨 800px, 不给条纹眼睛从「地址」扫到「大小」会串行。
 # 三档比过: #F7F9F9 太淡 (等于没做), #ECF1F1 跟表头同色 (打架), #F2F6F6 正好。
 C_ROW_ALT   = "#F2F6F6"
+C_TBLHEAD   = "#E2EBEB"   # 表头底色 (**不是 Arduino 原值**)。原来用 C_CHROME
+                          #   (#ECF1F1) —— 加上隔行条纹之后它跟条纹几乎同色,
+                          #   表头看着就是"又一个条纹行", 立不起来。重一档就分开了。
 # --- 语义 ---
 C_DANGER    = "#DF7365"   # errorForeground
 C_WARN      = "#F1C40F"   # toolbar.toggleBackground —— 借来当警告黄
@@ -2575,9 +2578,12 @@ class App(tk.Tk):
         # ---- 列表: 行高与字号 (默认 rowheight 配 9pt 中文偏挤) ----
         st.configure("Treeview", rowheight=px(24), font=FONT_UI,
                      background=C_FIELD, fieldbackground=C_FIELD,
-                     foreground=C_TEXT, bordercolor=C_BORDER,
+                     # ★ 表格正文用 C_TEXT_HI (#212121) 而不是通用的 C_TEXT
+                     #   (#4E5B61) —— 表格是**要逐行读数据**的地方, 而 #4E5B61
+                     #   偏蓝灰、压不住白底, 一串路径和地址看着发虚。
+                     foreground=C_TEXT_HI, bordercolor=C_BORDER,
                      lightcolor=C_BORDER, darkcolor=C_BORDER)
-        st.configure("Treeview.Heading", font=FONT_UI, background=C_CHROME,
+        st.configure("Treeview.Heading", font=FONT_UI, background=C_TBLHEAD,
                      foreground=C_TEXT, padding=(px(PAD_S), px(PAD_XS)),
                      relief="flat", bordercolor=C_BORDER)
         st.map("Treeview.Heading", background=[("active", C_HILITE)])

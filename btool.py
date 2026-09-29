@@ -2088,7 +2088,7 @@ class CircleButton(tk.Label):
     不用字体字符: U+25B6 这类符号在部分字体下会渲染成彩色 emoji, 不可控。
     """
 
-    def __init__(self, master, shape, bg, command, size=None):
+    def __init__(self, master, shape, bg, command, size=None, tip=None):
         self._n = size or px(28)
         self._cmd = command
         self._enabled = True
@@ -2110,6 +2110,10 @@ class CircleButton(tk.Label):
         self.bind("<Button-1>", self._click)
         self.bind("<Enter>", lambda _e: self._paint("hover"))
         self.bind("<Leave>", lambda _e: self._paint(""))
+        # 圆里只有个图标, 不给文字就得靠猜 —— 和左侧竖栏用同一个 _Tip。
+        # (add="+" 绑的, 不影响上面那两个 hover 重绘)
+        if tip:
+            _Tip(self, tip)
 
     def _paint(self, key):
         self.configure(image=self._imgs["dim" if not self._enabled else key])
@@ -2133,7 +2137,9 @@ class _Tip(object):
 
     def __init__(self, widget, text):
         self.w = widget
-        self.text = text
+        # ⚠ 去掉首尾空白 —— 页签文字自带左右各两个空格 (那是给**横排页签**留的
+        #   左右呼吸), 直接拿来当提示就变成 "  烧写  ", 看着很脏。
+        self.text = (text or "").strip()
         self.win = None
         widget.bind("<Enter>", self._show, add="+")
         widget.bind("<Leave>", self._hide, add="+")
@@ -2278,6 +2284,9 @@ class WorkArea(tk.Frame):
         self.lbl_badge = tk.Label(top, bg=C_TOPBAR, bd=0, highlightthickness=0,
                                   image=self._badge["off"])
         self.lbl_badge.pack(side="right", padx=(0, px(PAD_M)))
+        # 徽标同样是"一个图标没有字", 一样要 tooltip —— 而且它的含义随状态变,
+        # 所以留着引用, 在 set_online() 里改文字 (见那里)。
+        self._tip_badge = _Tip(self.lbl_badge, tr("not_connected"))
         tk.Frame(self, height=1, bg=C_TOPBAR_LN).pack(fill="x")
 
         # ---- ② 主体: 左侧页面竖栏 + 内容区 ----
@@ -2323,6 +2332,11 @@ class WorkArea(tk.Frame):
 
     def set_online(self, on):
         """工具栏右侧那个圆徽标: ✓ 已连接 / ✕ 未连接"""
+        try:
+            # tooltip 的文字跟着状态走 —— 它是这个圆唯一的"说明"
+            self._tip_badge.text = tr("link_up") if on else tr("not_connected")
+        except Exception:
+            pass
         try:
             self.lbl_badge.configure(image=self._badge["on" if on else "off"])
         except Exception:
@@ -2445,10 +2459,10 @@ class App(tk.Tk):
         # ---- 工具栏左侧: 圆形 连接/断开 + 串口选择框 ----
         # 照 Arduino: 工具按钮跟设备相关, 挂在工具栏条上, 与页面无关 (切页它不动)。
         self.btn_connect = CircleButton(wa.tools, "connect", C_TOPBAR,
-                                        self.on_connect)
+                                        self.on_connect, tip=tr("connect"))
         self.btn_connect.pack(side="left")
         self.btn_disconnect = CircleButton(wa.tools, "disconnect", C_TOPBAR,
-                                           self.on_disconnect)
+                                           self.on_disconnect, tip=tr("disconnect"))
         self.btn_disconnect.pack(side="left", padx=(px(PAD_XS), px(PAD_L)))
         # 串口选择框 (Arduino 的 toolbar.dropdown: 白底 + #DAE3E3 边框 + #4E5B61 字)
         self.cb_port = ttk.Combobox(wa.tools, width=20, state="readonly",

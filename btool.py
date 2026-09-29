@@ -687,8 +687,6 @@ LANG = {
         "title": "bTool — ESP32 图形化工具",
 
         # 顶部
-        "connection": "连接",
-        "port": "串口:",
         "refresh": "刷新",
         "chip": "芯片:",
         "language": "语言",      # 原先是工具栏标签 "语言:" (后面跟下拉框); 那个下拉已删, 现在只给菜单用
@@ -714,8 +712,6 @@ LANG = {
         "dog_body_l": "前后髋距 (半距)",
         "dog_body_w": "左右髋宽 (半宽)",
         "dog_limits": "关节限位",
-        "dog_hip": "髋角",
-        "dog_knee": "膝角",
         "dog_center": "重心偏移",
         "dog_mm": "mm",
         "dog_deg": "度",
@@ -758,6 +754,7 @@ LANG = {
         "cal_imu_going": "正在标定, 采样 {n} 次 …",
         "cal_imu_done": "标定完成 (板子没回话, 但没报错)",
         "cal_out": "输出",
+        "term_send_fail": "[发送失败: {msg}]",
         "ui_error_short": "界面出错: {msg} —— 详情见终端页",
         "cal_chip_unknown": "读不到 IMU (没连板子或没接芯片)",
         "cal_chip_mag": "带磁力计",
@@ -806,14 +803,11 @@ LANG = {
         "delete": "删除",
 
         # REPL
-        "repl_baud": "REPL 波特率:",
-        "repl_baud_hint": "(连接设备用; 改完要重新连接才生效)",
         "term_hint": "直接在上面输入 (回车发送, 回显来自板子)",
         "to_repl": "切回 REPL",
         "menu_copy": "复制",
         "menu_paste": "粘贴",
         "menu_select_all": "全选",
-        "board_info": "[板子] {text}",
         "read_chip": "读芯片信息",
         "about": "关于",
         "cd_chip_type": "芯片型号:",
@@ -872,7 +866,6 @@ LANG = {
         "connected_status": "已连接 {port} (REPL)",
         "link_up": "已连接",
         "not_connected": "未连接",
-        "linked": "已连接 {port} @{baud}",
         "flash_progress": "烧写进度:",
         "no_prompt": "(没看到 >>> 提示符; 若板子在跑程序请按 Ctrl+C)",
         "disconnected": "已断开",
@@ -945,15 +938,11 @@ LANG = {
         "fl_reopen_fail": "[串口重开失败: {msg}]",
         "progress_pct": "进度 {pct:.1f}%  ({cur} / {total})",
         # 菜单栏 / menu bar
-        "menu_file":     "文件",
         "menu_tools":    "工具",
         "port_menu":     "串口",
         "menu_settings": "设置",
         "menu_help":     "帮助",
-        "quit":          "退出",
         "refresh_ports": "刷新串口",
-        "clear_fw_list": "清空固件列表",
-        "flash_start":   "开始烧写",
         "user_manual":   "用户手册",
         "dev_notes":     "开发说明",
         "about_app":     "关于 bTool",
@@ -964,8 +953,6 @@ LANG = {
         "lang_name": "English",
         "title": "bTool — ESP32 Tool",
 
-        "connection": "Connection",
-        "port": "Port:",
         "refresh": "Refresh",
         "chip": "Chip:",
         "language": "Language",
@@ -991,8 +978,6 @@ LANG = {
         "dog_body_l": "Hip spacing (half)",
         "dog_body_w": "Hip width (half)",
         "dog_limits": "Joint limits",
-        "dog_hip": "Hip",
-        "dog_knee": "Knee",
         "dog_center": "CoG offset",
         "dog_mm": "mm",
         "dog_deg": "deg",
@@ -1035,6 +1020,7 @@ LANG = {
         "cal_imu_going": "Calibrating, {n} samples ...",
         "cal_imu_done": "Done (no reply, but no error either)",
         "cal_out": "Output",
+        "term_send_fail": "[send failed: {msg}]",
         "ui_error_short": "UI error: {msg} — see the REPL tab",
         "cal_chip_unknown": "Cannot read IMU (no board / no chip)",
         "cal_chip_mag": "has magnetometer",
@@ -1083,14 +1069,11 @@ LANG = {
         "rename": "Rename",
         "delete": "Delete",
 
-        "repl_baud": "REPL baud:",
-        "repl_baud_hint": "(used for connecting; reconnect to apply)",
         "term_hint": "Type directly above (Enter sends; echo comes from the board)",
         "to_repl": "Back to REPL",
         "menu_copy": "Copy",
         "menu_paste": "Paste",
         "menu_select_all": "Select All",
-        "board_info": "[board] {text}",
         "read_chip": "Read chip info",
         "about": "About",
         "cd_chip_type": "Chip type:",
@@ -1153,7 +1136,6 @@ LANG = {
         "connected_status": "Connected {port} (REPL)",
         "link_up": "Connected",
         "not_connected": "Not connected",
-        "linked": "Connected {port} @{baud}",
         "flash_progress": "Flash progress:",
         "no_prompt": "(no >>> prompt seen; press Ctrl+C if the board is running a program)",
         "disconnected": "Disconnected",
@@ -1225,15 +1207,11 @@ LANG = {
         "fl_reopen_fail": "[failed to reopen port: {msg}]",
         "progress_pct": "Progress {pct:.1f}%  ({cur} / {total})",
         # menu bar
-        "menu_file":     "File",
         "menu_tools":    "Tools",
         "port_menu":     "Port",
         "menu_settings": "Settings",
         "menu_help":     "Help",
-        "quit":          "Quit",
         "refresh_ports": "Refresh Ports",
-        "clear_fw_list": "Clear Firmware List",
-        "flash_start":   "Flash",
         "user_manual":   "User Manual",
         "dev_notes":     "Developer Notes",
         "about_app":     "About bTool",
@@ -3079,7 +3057,6 @@ class App(tk.Tk):
         return {
             "repl": self.txt_term.get("1.0", "end-1c"),
             "flash_log": self.txt_flash.get("1.0", "end-1c"),
-            "port": self.var_port.get(),
             "fbaud": self.cb_fbaud.get(),
             "erase": self.var_erase.get(),
             "local_dir": self.var_local.get(),
@@ -4002,7 +3979,7 @@ class App(tk.Tk):
             if self.sm.is_open:
                 self.sm.write(data)
         except Exception as e:
-            self.term_write("\n[发送失败: %s]\n" % e)
+            self.term_write(tr("term_send_fail", msg=e))
         return "break"
 
     def on_term_key(self, ev):
@@ -4419,7 +4396,6 @@ class App(tk.Tk):
             "lang": _LANG_ID,
             "fw_dir": self.fw_dir,
             "local_dir": self.local_dir,
-            "port": self._port_name(),
             "flash_baud": self.cb_fbaud.get(),
             "autoscroll": bool(self.var_autoscroll.get()),
             "autoreconnect": bool(self.var_autoreconnect.get()),

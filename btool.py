@@ -22,6 +22,7 @@ Run / 运行:
 """
 
 import base64
+import ctypes
 import json
 import os
 import re
@@ -51,6 +52,307 @@ except ImportError:
 
 
 APP_NAME = "bTool"
+
+
+# ======================================================================
+# DPI 感知 / DPI awareness
+# ======================================================================
+# ★ 必须在 **tk.Tk() 之前**跑 —— Windows 是在进程第一次建窗口时登记 DPI 感知级别的,
+#   登记之后再调就晚了 (窗口已按 unaware 画过一轮)。
+#
+# 不开的后果: 系统缩放 125% 时, Windows 把整个窗口按 96 DPI 画进离屏位图, 再整块
+#   拉伸到 125% —— 文字和线条全是插值出来的, 发虚。这就是"界面看着不锐利"的根源,
+#   跟哪个控件没关系。(实测本机 120 DPI 缩放, 本工具原先的进程 DPI 感知 = 0/UNAWARE)
+#
+# 代价: 开了之后写死的像素**不再被放大** ⇒ 界面整体缩 25%。所以尺寸都要过 px(),
+#   把那 25% 补回来 (见 px() 的注释)。
+def _enable_dpi_awareness():
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)   # 2 = PER_MONITOR_AWARE
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()        # 老系统 / 无 shcore 时的退路
+    except Exception:
+        pass
+
+
+def _query_scale():
+    """本机 DPI 缩放系数 (96 DPI = 1.0)。拿不到就当 1.0, 不能因此起不来。"""
+    try:
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)   # LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        if 48 <= dpi <= 480:            # 0.5x ~ 5x, 离谱的值当没读到
+            return dpi / 96.0
+    except Exception:
+        pass
+    return 1.0
+
+
+_enable_dpi_awareness()
+_SCALE = _query_scale()
+
+
+def px(n):
+    """逻辑像素 → 物理像素。
+
+    ⚠ 每个**写死**的尺寸都要过这里, 否则在 125% 缩放的屏上会比改前小一圈 ——
+      改前那些像素是被 Windows 拉伸放大的 (糊, 但尺寸对), 开了 DPI 感知后不再
+      放大, 不补回来就成了"清楚了但也变小了"。
+
+    只对**像素**生效。字符数 (Entry 的 width=) 和行数 (Text 的 height=) 不用管,
+    它们本来就跟着字号走。
+    """
+    return max(1, int(round(n * _SCALE)))
+
+
+def work_area():
+    """桌面可用区域 (左, 上, 宽, 高), 物理像素 —— **已排除任务栏**。
+
+    ⚠ 不能用 winfo_screenwidth/height: 那两个给的是整块屏幕, 不含任务栏。
+      写死窗口尺寸时差的就是这一条 —— 实测在 1920x1080 / 125% 的机器上,
+      窗口按屏幕高 1080 算出来 1099 高, 而工作区只有 1020, 底部直接出屏。
+    拿不到就返回 None, 由调用方退回屏幕尺寸。
+    """
+    class _RECT(ctypes.Structure):
+        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                    ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+    try:
+        r = _RECT()
+        # SPI_GETWORKAREA = 0x0030
+        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0):
+            if r.right > r.left and r.bottom > r.top:
+                return r.left, r.top, r.right - r.left, r.bottom - r.top
+    except Exception:
+        pass
+    return None
+
+
+# ======================================================================
+# 视觉规范 / design tokens
+# ======================================================================
+# 界面里**只允许**用这里的值。改之前: 间距散落 11 种 (2,3,4,6,8,10,12,14,18,20,30)、
+# 字号 5 种、按钮宽度 6 档、颜色 9 个 —— 同样一句"留点间隔", 在不同地方是 4px 还是
+# 6px 全凭当时手写了多少, 这就是"排布随意"的来源。收敛成刻度之后, 整体调只改这里。
+
+# ---- 间距刻度 (逻辑px, 用的时候过 px()) ----
+PAD_XS, PAD_S, PAD_M, PAD_L, PAD_XL = 4, 8, 12, 16, 24
+
+# ---- 字号: 5 种收敛到 4 种 ----
+FONT_UI      = ("Microsoft YaHei UI", 9)          # 正文 (与 tk 默认字体一致, 显式写出来免得随主题漂)
+FONT_UI_BOLD = ("Microsoft YaHei UI", 9, "bold")  # 正文加粗 (仅强调用, 不算新字号)
+FONT_SMALL   = ("Microsoft YaHei UI", 8)          # 提示 / 次要说明
+FONT_MONO    = ("Consolas", 10)                   # **所有**等宽输出统一 (原先终端 11 / 日志 9)
+FONT_H1      = ("Microsoft YaHei UI", 12, "bold") # 对话框标题
+
+# ---- 控件宽度 (字符) ----
+W_S, W_M, W_L = 8, 12, 20
+
+# ---- 调色板: **原值**取自 Arduino IDE 2.x 浅色主题 ----
+# 来源文件 (arduino/arduino-ide):
+#   arduino-ide-extension/src/browser/data/default.color-theme.json
+# 每个 token 后面标的就是它在那里对应的键名 —— 要改色请**照键名去查**,
+# 别再自己配 (之前凭印象配过一轮, 结果 #00979D / #434F54 / #ECECEC 全是
+# 旧版 rc 或别的键的值, 整套偏色)。
+# ★ 中性色都是**纯中性**(白 / #f7f9f9 / #ecf1f1 / #dae3e3), 青色只用在强调上 ——
+#   之前我把所有中性色都染了青, 看着"颜色莫名其妙"就是这个原因。
+#
+# --- 中性 ---
+C_FIELD     = "#FFFFFF"   # editor.background / input.background / dropdown.background
+C_WIDGET    = "#F7F9F9"   # editorWidget.background / sideBar.background
+C_CHROME    = "#ECF1F1"   # editorGroupHeader.tabsBackground / activityBar.background / tab.inactiveBackground
+C_BORDER    = "#DAE3E3"   # dropdown.border / tree.indentGuidesStroke / list.inactiveSelectionBackground
+C_BORDER_2  = "#B5C8C9"   # arduino.branding.secondary —— **强一档**的边框, 只在需要真边界时用
+                          #   (#DAE3E3 太淡, 用来分隔页签会"糊在一起" —— 实测反馈)
+C_MUTED     = "#BDC7C7"   # activityBar.inactiveForeground —— 次要文字/不可用
+# --- 文字 ---
+C_TEXT      = "#4E5B61"   # foreground / editor.foreground / dropdown.foreground
+C_TEXT_HI   = "#212121"   # menu.selectionForeground —— 需要更重时用
+# --- 品牌 (青色只在这些地方出现) ---
+C_ACCENT    = "#008184"   # arduino.branding.primary = button.background
+C_ACCENT_DK = "#005C5F"   # button.hoverBackground / progressBar.background
+C_BAR       = "#006D70"   # statusBar.background / titleBar.activeBackground (深 teal)
+C_ACCENT_LT = "#7FCBCD"   # focusBorder / toolbar.button.background / dropdown.borderActive
+C_ACCENT_T2 = "#B5E0E1"   # ↑掺白 50% 的淡版 —— **不是 Arduino 原值**, 是为了让文字按钮
+                          #   (120px 宽) 别像图标按钮那样一大片。悬停时回到 #7FCBCD。
+C_ACCENT_2  = "#1DA086"   # toolbar.dropdown.iconSelected
+C_SEL       = "#CCE6E6"   # list.activeSelectionBackground(#00818433) 的白底等效色 —— Tk 不支持透明度
+C_HILITE    = "#DAE3E3"   # menu.selectionBackground / 悬停底
+# --- 语义 ---
+C_DANGER    = "#DF7365"   # errorForeground
+C_WARN      = "#F1C40F"   # toolbar.toggleBackground —— 借来当警告黄
+C_OK        = "#1DA086"
+# --- 深色区: Arduino 的输出面板与终端**都是纯黑** ---
+C_OUT_BG, C_OUT_FG = "#000000", "#FFFFFF"   # arduino.output.background / .foreground
+C_TERM_BG, C_TERM_FG, C_TERM_SEL = "#000000", "#FFFFFF", "#7FCBCD"
+# --- 页签 ---
+C_TABSTRIP  = "#ECF1F1"   # = C_CHROME, 单独给个名字是因为这里它同时是"条带底色"
+C_TAB_OFF_FG = "#8B8B8B"  # 未选中页签文字 (Arduino 未定义, 取 VS Code 浅色默认)
+C_TAB_HOVER = "#DAE3E3"   # 未选中页签悬停
+
+
+# ======================================================================
+# 圆角外观 / rounded corners
+# ======================================================================
+# Tk 的 ttk 控件**画不出圆角** —— 按钮形状由主题的 element 决定, 只有方角。
+# 想做圆角只有三条路, 这里走第二条:
+#   ① 保持直角                    —— 零成本, 但用户明确要圆角
+#   ② 九宫格图 + ttk image element —— 还是**真 ttk 按钮**, 键盘 Tab 导航/禁用态/
+#                                     焦点环全部保留, 只是换了张"脸"  ← 本文件采用
+#   ③ 自绘 Canvas 按钮             —— 最灵活, 但 Canvas 不进焦点环, 会丢掉 Tab 导航
+#
+# 图是**运行时纯 Python 逐像素画的** (PPM P6, 带 4×4 超采样抗锯齿), 不进源码、
+# 不依赖 Pillow —— bTool 的运行期依赖只有 pyserial + esptool, 不能因为圆角就多一个。
+_ROUND_IMGS = []      # ★★ 必须留引用: PhotoImage 被 GC 掉, Tk 那边的图像就没了,
+                      #    渲染出来是**纯黑块** (实测踩过)。别删这个列表。
+
+
+def _seg_dist(px, py, ax, ay, bx, by):
+    """点 (px,py) 到线段 AB 的距离 —— 画下拉箭头的两条斜线用。"""
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+    ex, ey = ax + t * dx, ay + t * dy
+    return ((px - ex) ** 2 + (py - ey) ** 2) ** 0.5
+
+
+def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0):
+    """圆角矩形 → PPM(P6) 原始字节 (tk.PhotoImage 直接吃 bytes, **不能**用 base64)。
+
+    三层合成: 外部色 outside → 边框色 border → 填充色 fill, 各带覆盖率。
+    outside 是**按钮所在容器的底色** —— 把容器色烤进四角, 就不用真透明通道
+    (PPM 没有 alpha), 边缘抗锯齿也自然过渡到容器色。
+    """
+    def cov(x, y, inset):
+        n = ss; hit = 0
+        for i in range(n):
+            for j in range(n):
+                px, py = x + (i + 0.5) / n - inset, y + (j + 0.5) / n - inset
+                dx = max(r - px, px - (w - r), 0.0)
+                dy = max(r - py, py - (h - r), 0.0)
+                if dx * dx + dy * dy <= r * r:
+                    hit += 1
+        return hit / (n * n)
+    NL = chr(10)
+    buf = bytearray(("P6" + NL + "%d %d" % (w, h) + NL + "255" + NL).encode())
+    # ★ 边框宽度必须是 **1px**。早先写成 r*0.32 (半径 7 时 ≈2.2px), 深色描边包浅色填充
+    #   ⇒ 看着像倒角/浮雕, 而第一级(描边=填充, 看不见边)看着是平面的 —— 两级不在
+    #   一个语汇里。Arduino 的按钮**压根没有描边**, 全是纯平铺色块。
+    # chevron: (中心x, 中心y, 半宽, 半高, 线粗, 颜色) —— 下拉箭头直接画进图里。
+    #   为什么不单用 Combobox.downarrow 元素: 它跟圆角 field 并存时要么被 field
+    #   挤掉宽度、要么取不到 arrowcolor 而根本不画 (两种都实测过, 都没出来)。
+    #   画进图里最稳 —— 而且整个下拉框本来就可点, 不靠那个元素响应。
+    cxs = cy = cx = None
+    if chevron:
+        cx, cy, hw, hh, ctk, _cc = chevron
+        creg = (cx - hw - ctk, cy - hh - ctk, cx + hw + ctk, cy + hh + ctk)
+    for y in range(h):
+        for x in range(w):
+            ao = cov(x, y, 0.0)
+            ai = cov(x, y, bw)
+            rgb = [outside[k] * (1.0 - ao) + border[k] * max(0.0, ao - ai)
+                   + fill[k] * ai for k in range(3)]
+            if chevron and creg[0] <= x <= creg[2] and creg[1] <= y <= creg[3]:
+                hit = 0
+                for i in range(ss):
+                    for j in range(ss):
+                        sx, sy = x + (i + 0.5) / ss, y + (j + 0.5) / ss
+                        d = min(_seg_dist(sx, sy, cx - hw, cy - hh, cx, cy),
+                                _seg_dist(sx, sy, cx, cy, cx + hw, cy - hh))
+                        if d <= ctk / 2.0:
+                            hit += 1
+                c_a = hit / (ss * ss)
+                if c_a > 0:
+                    for k in range(3):
+                        rgb[k] = rgb[k] * (1 - c_a) + _cc[k] * c_a
+            for k in range(3):
+                buf.append(max(0, min(255, int(round(rgb[k])))))
+    return bytes(buf)
+
+
+def _rgb(hexstr):
+    """'#RRGGBB' -> (r, g, b)。"""
+    s = hexstr.lstrip("#")
+    return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
+_STYLED = set()       # element_create 每个名字只能建一次; 切语言会重建 UI, 要挡住重复
+
+
+def _round_element(st, el, radius, outside, faces, chevron=False):
+    """建一个九宫格图元素, 返回元素名 (可反复调用, 同名只建一次)。
+
+    faces   —— {状态: (填充色, 边框色)}, 必须有一个 "" 作默认图
+    chevron —— 是否在右端画一个下拉箭头 (下拉框用); 会同时把右边切片加宽
+    """
+    if el in _STYLED:
+        return el
+    R = radius + 2                     # 九宫格的角盒边长
+    CH = px(15) if chevron else 0      # 右端留给箭头的宽度
+    W, H = 2 * R + 8 + CH, 2 * R + 8   # 中间 8px 会被拉伸
+    out = _rgb(outside)
+    args = []
+    for state, (fill, edge) in faces.items():
+        ch = None
+        if chevron:
+            # 箭头画在**右切片**里 —— 那一列不会被拉伸, 所以箭头尺寸固定不变形
+            ch = (W - R - CH / 2.0, H / 2.0, px(4), px(2), max(1.0, px(1.4)),
+                  _rgb(C_TEXT))
+        im = tk.PhotoImage(data=_rr_ppm(W, H, R, _rgb(fill), _rgb(edge), out,
+                                        chevron=ch))
+        _ROUND_IMGS.append(im)
+        args.append(im if state == "" else (state, im))
+    # border 支持四元组 ⇒ 右边切片能比左边宽, 箭头因此有地方待
+    st.element_create(el, "image", *args,
+                      border=(R, R, R + CH, R) if chevron else R, sticky="nswe")
+    _STYLED.add(el)
+    return el
+
+
+def install_round_button(st, style, radius, outside, faces, pad, fg, font=None):
+    """把一个 ttk 按钮样式换成圆角外观。
+
+    style   —— 样式名, 如 "TButton" / "Chrome.TButton"
+    outside —— 按钮所在**容器**的底色 ('#RRGGBB'), 会被烤进四角
+    """
+    el = _round_element(st, "Rnd" + style.replace(".", "_"), radius, outside, faces)
+    st.layout(style, [
+        (el, {"sticky": "nswe", "children": [
+            ("Button.padding", {"sticky": "nswe", "children": [
+                ("Button.label", {"sticky": "nswe"}),
+            ]}),
+        ]}),
+    ])
+    st.configure(style, padding=pad, foreground=fg, borderwidth=0,
+                 relief="flat", font=font or FONT_UI)
+
+
+def install_round_field(st, style, radius, outside, faces, text_el,
+                        tail=(), chevron=False):
+    """把输入框的 field 元素换成圆角 —— TEntry 与 TCombobox 共用。
+
+    text_el —— "Entry.textarea" 或 "Combobox.textarea"
+    tail    —— 放在 field **之后**的元素 (绘制在 field 之上)。
+    ⚠ TCombobox 的 `Combobox.downarrow` **必须**在这里带上 —— 这个函数是替换
+      **整个 layout**, 漏掉谁谁就消失 (实测: 漏了 downarrow, 下拉箭头直接没了,
+      输入框看着像个普通文本框)。
+    """
+    el = _round_element(st, "Rnd" + style.replace(".", "_") + "Field",
+                        radius, outside, faces, chevron=chevron)
+    # ★ 顺序要紧: 带 -side 的元素必须排在**前**, 无 -side 的那个才会去填"剩下的"空间。
+    #   反过来的话无 -side 的元素会吃掉整块, 后面的分不到尺寸 —— 实测下拉箭头就是这样
+    #   消失的 (元素还在 layout 里, 但宽度为 0, 什么也画不出来)。
+    layout = list(tail)
+    layout.append(
+        (el, {"sticky": "nswe", "children": [
+            (text_el.replace(".textarea", ".padding"),
+             {"sticky": "nswe", "children": [(text_el, {"sticky": "nswe"})]}),
+        ]}),
+    )
+    st.layout(style, layout)
+
 
 # ---- 关于 / about ----
 # 改版本号 / 作者就改这里。
@@ -1015,6 +1317,103 @@ def dev_mkdir(sm, path):
 # 主界面 / main window
 # ======================================================================
 
+class FlatTabs(tk.Frame):
+    """扁平页签条 + 内容区 (自绘)。
+
+    为什么不用 `ttk.Notebook`: 它的页签形状是**主题的 element 决定的**, clam 和 vista
+    都画成"文件夹标签"那种带斜边的梯形 —— 形状本身就旧, 而且改不动 (只能调颜色)。
+    Arduino IDE (VS Code / Theia 底子) 的页签是**扁平矩形**:
+        激活项 —— 底色 = 内容区底色 (像"融进去"), 顶部一条 2px 品牌色描边
+        未激活 —— 底色稍深, 文字浅灰, 无描边
+    这个形状 ttk 做不出来, 所以用普通 tk 控件自己拼 (tk 控件完全听 bg/fg 的)。
+
+    对外接口刻意做得跟 Notebook 接近, 少改调用方:
+        add(frame, text)  加一页
+        select(frame)     切到某页 (不传参数则返回当前页)
+    """
+
+    def __init__(self, master, on_change=None, **kw):
+        super().__init__(master, bg=C_FIELD, **kw)
+        self._on_change = on_change
+        self._pages = []            # [(frame, holder, bar, lbl, sep)]
+        self._current = None
+
+        # 页签条 —— 上留 px(PAD_S) 的呼吸, 左边留 px(PAD_M), 免得第一个页签像被窗口裁掉
+        self._strip = tk.Frame(self, bg=C_TABSTRIP)
+        self._strip.pack(fill="x", pady=(px(PAD_S), 0))
+        tk.Frame(self._strip, bg=C_TABSTRIP, height=px(PAD_S)).pack(side="left")
+        # 条带下沿 1px (VS Code 的 editorGroup.border)
+        tk.Frame(self, height=1, bg=C_BORDER_2).pack(fill="x")
+        # 内容区
+        self.body = tk.Frame(self, bg=C_FIELD)
+        self.body.pack(fill="both", expand=True)
+
+    def add(self, frame, text):
+        """加一页。frame 会被放进内容区, 同一时刻只有一页挂在上面。"""
+        # 页签之间的 1px 竖分隔线 (第一个不加 —— 它左边是条带留白, 有它就多余)
+        sep = None
+        if self._pages:
+            sep = tk.Frame(self._strip, bg=C_BORDER_2, width=1)
+            sep.pack(side="left", fill="y")
+
+        holder = tk.Frame(self._strip, bg=C_TABSTRIP)
+        holder.pack(side="left", fill="y")
+        # 顶部 2px 描边 —— 只给激活项着色, 平时与条带同色 (占位, 免得切换时页签跳动)
+        bar = tk.Frame(holder, height=2, bg=C_TABSTRIP)
+        bar.pack(fill="x")
+        lbl = tk.Label(holder, text=text.strip(), bg=C_TABSTRIP, fg=C_TAB_OFF_FG,
+                       font=FONT_UI, padx=px(PAD_L) + px(PAD_XS), pady=px(PAD_S) + 3)
+        lbl.pack(fill="both", expand=True)
+
+        # 整块都可点 (描边/文字/容器), 否则"点边上没反应"很恼人
+        for w in (holder, bar, lbl):
+            w.bind("<Button-1>", lambda _e, f=frame: self.select(f))
+        # 未选中时悬停浮现底色 (现代 UI 的通用反馈)
+        for w in (holder, lbl):
+            w.bind("<Enter>", lambda _e, f=frame: self._hover(f, True))
+            w.bind("<Leave>", lambda _e, f=frame: self._hover(f, False))
+
+        self._pages.append((frame, holder, bar, lbl, sep))
+        if self._current is None:
+            self.select(frame)
+        return frame
+
+    def _hover(self, frame, on):
+        """悬停反馈 —— 只对**未选中**的页签生效 (选中的已经够醒目了)。"""
+        if frame is self._current:
+            return
+        for f, holder, bar, lbl, sep in self._pages:
+            if f is frame:
+                holder.configure(bg=C_TAB_HOVER if on else C_TABSTRIP)
+                lbl.configure(bg=C_TAB_HOVER if on else C_TABSTRIP)
+
+    def select(self, frame=None):
+        """切页。不传参 → 返回当前页 (跟 Notebook.select() 一个用法)。"""
+        if frame is None:
+            return self._current
+        self._current = frame
+        for f, holder, bar, lbl, sep in self._pages:
+            active = (f is frame)
+            # 激活项 = 内容区同色 (视觉上"长"进内容) + 顶部品牌色描边;
+            # 未激活 = 条带同色 (融进条带, 只剩文字 + 竖分隔线)。**不加粗** ——
+            # 中文加粗显笨重, 现代 IDE 靠底色/描边区分就够。
+            bg = C_FIELD if active else C_TABSTRIP
+            holder.configure(bg=bg)
+            lbl.configure(bg=bg, fg=C_TEXT if active else C_TAB_OFF_FG,
+                          font=FONT_UI)
+            bar.configure(bg=C_ACCENT if active else bg)
+            if active:
+                f.pack(fill="both", expand=True)
+            else:
+                f.pack_forget()
+        if self._on_change:
+            self._on_change()
+
+    def select_index(self, i):
+        if 0 <= i < len(self._pages):
+            self.select(self._pages[i][0])
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -1030,8 +1429,7 @@ class App(tk.Tk):
 
         self.title(tr("title"))
         set_window_icon(self)              # 标题栏 / 任务栏图标
-        self.geometry("1140x840")
-        self.minsize(980, 700)
+        self._setup_geometry()
 
         self.sm = SerialManager()
         self.msgq = queue.Queue()          # 工作线程 → UI
@@ -1064,28 +1462,59 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     # UI 构建 / build UI
     # ------------------------------------------------------------------
+    def _setup_geometry(self):
+        """按**工作区**定窗口大小与位置 (不写死)。
+
+        改之前是 geometry("1140x840") + minsize(980,700): 那些数字是逻辑像素,
+        在 125% 缩放的屏上变成实际 1445x1099, 而工作区只有 1020 高 —— 窗口底部
+        (状态栏和「关于」)直接出屏。而窗口尺寸**不存偏好**(_save_state 里没有),
+        所以每次启动都这样, 不是只有第一次。
+
+        现在按工作区算, 并留 8% 余量; 大屏上不无限拉伸, 仍以 px(1140x840) 封顶。
+        """
+        wa = work_area()
+        if wa:
+            _, _, sw, sh = wa
+        else:
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(px(1140), int(sw * 0.92))
+        h = min(px(840), int(sh * 0.92))
+        x = max(0, (sw - w) // 2)
+        y = max(0, int((sh - h) * 0.35))     # 略偏上, 比正中好看 (也更像原生的初始位)
+        self.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        self.minsize(px(900), px(620))
+
     def _build_ui(self):
         st = ttk.Style()
-        for th in ("vista", "clam"):
+        # ★ 用 clam 而不是 vista (实测 2026-09-29):
+        #   vista 主题的页签/按钮是**原生元素画的**, 会**忽略 background/foreground** ——
+        #   设了不生效但不报错。实测把选中页签设成"实色底+白字", 结果是**白字落在
+        #   原生白底上** ⇒ 页签文字整个看不见。同理工具栏那个主按钮也上不了色。
+        #   而"选中态一眼可辨"和"主操作按钮要醒目"恰恰是这次改造的两个核心诉求,
+        #   所以改用 clam: 它全部由 Tk 自己画, 配色/内边距/字号都听配置的。
+        for th in ("clam", "vista"):
             try:
                 st.theme_use(th)
                 break
             except Exception:
                 continue
+        self._style_setup(st)
 
         # ---- 顶部: 连接栏 / top bar ----
-        top = ttk.LabelFrame(self, text=tr("connection"), padding=8)
-        top.pack(fill="x", padx=8, pady=(8, 4))
+        top = ttk.LabelFrame(self, text=tr("connection"), padding=px(PAD_M),
+                             style="Chrome.TLabelframe")
+        top.pack(fill="x", padx=px(8), pady=(px(8), px(4)))
 
-        ttk.Label(top, text=tr("port")).grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text=tr("port"), style="Chrome.TLabel").grid(
+            row=0, column=0, sticky="w")
         self.cb_port = ttk.Combobox(top, width=22, state="readonly")
-        self.cb_port.grid(row=0, column=1, padx=(4, 6))
+        self.cb_port.grid(row=0, column=1, padx=(px(4), px(6)))
 
-        ttk.Button(top, text=tr("refresh"), width=7,
+        ttk.Button(top, text=tr("refresh"), width=7, style="Chrome.TButton",
                    command=self.refresh_ports).grid(row=0, column=2)
 
-        ttk.Label(top, text=tr("chip")).grid(row=0, column=3,
-                                             padx=(12, 0), sticky="w")
+        ttk.Label(top, text=tr("chip"), style="Chrome.TLabel").grid(row=0, column=3,
+                                             padx=(px(12), px(0)), sticky="w")
         # ★ **只读显示, 不给手选** —— 芯片型号是连上后探测出来的, 手选没有意义:
         #   ① 这个值**不驱动任何行为**。烧写时 esptool 自己会认芯片
         #      (`esp.CHIP_NAME` → 日志那行"芯片: ESP32-S3"), 当年手选的值
@@ -1094,43 +1523,47 @@ class App(tk.Tk):
         #      留个能选的框只会让人以为自己选对了。
         self.detected_chip = ""            # 连上探测到的, 空 = 还没认出来
         self.repl_ok = False               # 连上的板子有 MicroPython 吗 (决定文件管理能不能用)
-        self.lbl_chip = ttk.Label(top, width=11, foreground="#888")
-        self.lbl_chip.grid(row=0, column=4, padx=(4, 6), sticky="w")
+        self.lbl_chip = ttk.Label(top, width=13, foreground=C_MUTED,
+                                  style="Chrome.TLabel")
+        self.lbl_chip.grid(row=0, column=4, padx=(px(4), px(6)), sticky="w")
         self._render_chip()
 
-        ttk.Label(top, text=tr("language")).grid(row=0, column=5,
-                                                 padx=(8, 0), sticky="w")
+        ttk.Label(top, text=tr("language"), style="Chrome.TLabel").grid(row=0, column=5,
+                                                 padx=(px(8), px(0)), sticky="w")
         self.cb_lang = ttk.Combobox(
             top, width=8, state="readonly",
             values=[LANG[k]["lang_name"] for k in ("zh", "en")])
         self.cb_lang.set(LANG[_LANG_ID]["lang_name"])
-        self.cb_lang.grid(row=0, column=6, padx=(4, 6))
+        self.cb_lang.grid(row=0, column=6, padx=(px(4), px(6)))
         self.cb_lang.bind("<<ComboboxSelected>>", self.on_lang_change)
 
         self.btn_conn = ttk.Button(top, text=tr("connect"), width=10,
-                                   command=self.on_connect)
-        self.btn_conn.grid(row=0, column=7, padx=(12, 4))
+                                   style="Accent.TButton", command=self.on_connect)
+        self.btn_conn.grid(row=0, column=7, padx=(px(12), px(4)))
         self.btn_disc = ttk.Button(top, text=tr("disconnect"), width=10,
+                                   style="Chrome.TButton",
                                    command=self.on_disconnect, state="disabled")
         self.btn_disc.grid(row=0, column=8)
 
         # ★ 连接状态指示灯 —— 光靠按钮灰显/状态栏小字太不显眼, 这里给一个
         #   带颜色的粗体指示。用 tk.Label 而不是 ttk.Label: 某些 ttk 主题
         #   会忽略 foreground。
-        self.lbl_conn = tk.Label(top, text=tr("not_connected"),
-                                 fg="#c00000", font=("", 10, "bold"))
-        self.lbl_conn.grid(row=0, column=9, padx=(18, 0), sticky="w")
+        self.lbl_conn = tk.Label(top, bg=C_CHROME, text=tr("not_connected"),
+                                 fg=C_DANGER, font=FONT_UI_BOLD)
+        self.lbl_conn.grid(row=0, column=9, padx=(px(18), px(0)), sticky="w")
 
         # ---- 中部: 三个选项卡 —— 烧写 / REPL 终端 / 文件管理 ----
         # 三者互不干扰, 各自占满整个区域。原来是"烧写在上、REPL 常驻在下",
         # 挤在同一屏里 → 两个都变小, 而且 REPL 还要和烧写页抢竖向空间。
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+        # 页签条**通栏** (不留左右边距) —— 它要像 IDE 那样横贯整个窗口;
+        # 各页自己的内容边距在各页面里 (各自都有 padx)。
+        nb = FlatTabs(self, on_change=self._on_tab_changed)
+        nb.pack(fill="both", expand=True, pady=(px(PAD_XS), 0))
         self.nb = nb
 
-        self.tab_flash = ttk.Frame(nb)
-        self.tab_repl = ttk.Frame(nb)
-        self.tab_files = ttk.Frame(nb)
+        self.tab_flash = ttk.Frame(nb.body)
+        self.tab_repl = ttk.Frame(nb.body)
+        self.tab_files = ttk.Frame(nb.body)
         nb.add(self.tab_flash, text=tr("tab_flash"))
         nb.add(self.tab_repl, text=tr("tab_repl"))
         nb.add(self.tab_files, text=tr("tab_files"))
@@ -1139,28 +1572,208 @@ class App(tk.Tk):
         self._build_repl_tab()
         self._build_files_tab()
 
-        # 切到 REPL 页时把键盘焦点交给终端 —— 否则光标不闪、敲字没反应
-        # (Text 控件只在有焦点时才显示插入光标)
-        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
         # ---- 状态栏 / status bar ----
         # 「关于」放这儿: 连接栏那一排已经很挤了, 而关于是偶尔点一次的东西。
         # 先 pack 按钮再 pack 状态文字 —— 否则文字会把整行占满, 按钮被挤没。
+        # ★ 状态栏用 Arduino 的 statusBar 配色: **深 teal 底 + 浅字** —— 这是它
+        #   最好认的特征之一, 也把"窗口到此结束"这条界线画清楚了 (原来只有一条
+        #   1px 灰线, 和内容区分不开)。
         self.var_status = tk.StringVar(value=tr("ready"))
-        bar = ttk.Frame(self)
+        bar = ttk.Frame(self, style="Status.TFrame")
         bar.pack(fill="x", side="bottom")
-        ttk.Separator(bar, orient="horizontal").pack(fill="x")
-        row = ttk.Frame(bar)
+        row = ttk.Frame(bar, style="Status.TFrame")
         row.pack(fill="x")
-        ttk.Button(row, text=tr("about"), width=7,
-                   command=self.on_about).pack(side="right", padx=(4, 8), pady=2)
-        ttk.Label(row, textvariable=self.var_status,
+        ttk.Button(row, text=tr("about"), width=7, style="Status.TButton",
+                   command=self.on_about).pack(side="right",
+                                               padx=(px(PAD_XS), px(PAD_S)),
+                                               pady=px(PAD_XS))
+        ttk.Label(row, textvariable=self.var_status, style="Status.TLabel",
                   anchor="w").pack(side="left", fill="x", expand=True,
-                                   padx=8, pady=3)
+                                   padx=px(PAD_M), pady=px(PAD_XS))
+
+    def _style_setup(self, st):
+        """把主题默认外观改成这套界面的统一规范。
+
+        ⚠ 必须在 theme_use() **之后**调 —— 换主题会把已设的样式清掉。
+        改之前全文件只有 _build_ui 里那一句 `ttk.Style()`, 之后**一个 configure
+        都没有** —— 所有控件都是主题默认样子: 列表行高偏挤、页签三个长得几乎一样
+        (选中态只差一点背景明度)、按钮内边距为零。这就是"看着随意"的直接原因。
+        """
+        R4 = px(4)          # 统一圆角半径 (4 逻辑px, 与 Windows 11 系统控件同量级)
+        # ---- 底色 ----
+        # 内容区 = **纯白** (Arduino 的 editor.background)。窗口"框"的部分另给
+        # Chrome.* 样式 (#ECF1F1) —— 这样页签的"激活项白色"才有东西可对比。
+        st.configure(".", background=C_FIELD, foreground=C_TEXT, font=FONT_UI)
+        st.configure("TFrame", background=C_FIELD)
+        st.configure("TLabel", background=C_FIELD, foreground=C_TEXT, font=FONT_UI)
+        st.configure("TLabelframe", background=C_FIELD, bordercolor=C_BORDER,
+                     relief="solid", borderwidth=1)
+        st.configure("TLabelframe.Label", background=C_FIELD, foreground=C_TEXT,
+                     font=FONT_UI)
+        st.configure("TCheckbutton", background=C_FIELD, foreground=C_TEXT, font=FONT_UI)
+        st.map("TCheckbutton", background=[("active", C_FIELD)])
+        st.configure("TSeparator", background=C_BORDER)
+
+        # 窗口"框"那一层: 顶部连接栏 / 页签条 —— Arduino 的 #ECF1F1
+        st.configure("Chrome.TFrame", background=C_CHROME)
+        st.configure("Chrome.TLabel", background=C_CHROME, foreground=C_TEXT,
+                     font=FONT_UI)
+        st.configure("Chrome.TLabelframe", background=C_CHROME,
+                     bordercolor=C_BORDER, relief="solid", borderwidth=1)
+        st.configure("Chrome.TLabelframe.Label", background=C_CHROME,
+                     foreground=C_TEXT, font=FONT_UI)
+        st.configure("Chrome.TCheckbutton", background=C_CHROME, foreground=C_TEXT,
+                     font=FONT_UI)
+        st.map("Chrome.TCheckbutton", background=[("active", C_CHROME)])
+        # 状态栏: Arduino 的 statusBar 是**深 teal + 浅字** —— 它最好认的特征之一
+        st.configure("Status.TFrame", background=C_BAR)
+        st.configure("Status.TLabel", background=C_BAR, foreground=C_FIELD,
+                     font=FONT_UI)
+
+        # ---- 输入类: 也做圆角 ----
+        # 必须跟按钮**成套**: 一半圆角一半直角, 比全直角更乱。
+        # 做法是把 field 元素换成九宫格图 (Entry.field / Combobox.field), 内部
+        # 的 padding/textarea 结构照旧 —— 所以输入、选中、只读这些行为都不受影响。
+        # ⚠ 下拉箭头**不能**画进九宫格图里 —— ttk 的 image element 对中间那格是
+        #   **平铺(tile)** 而不是拉伸, 箭头会沿控件高度重复好几遍 (实测: 一个下拉框
+        #   里叠了三个 ∨)。中间格只有是纯色时, tile 与 stretch 才看不出区别 ——
+        #   这也是圆角按钮一直正常的原因。
+        #   箭头仍交给 Combobox.downarrow 元素, 且必须排在有 -side 的位置上。
+        for sty, text_el, tail in (("TEntry", "Entry.textarea", ()),
+                                   ("TCombobox", "Combobox.textarea",
+                                    (("Combobox.downarrow",
+                                      {"side": "right", "sticky": "ns"}),))):
+            install_round_field(st, sty, R4, C_FIELD, {
+                "":         (C_FIELD,  C_BORDER),
+                "focus":    (C_FIELD,  C_ACCENT_LT),
+                "disabled": (C_CHROME, C_BORDER),
+            }, text_el, tail)
+            st.configure(sty, fieldbackground=C_FIELD, background=C_FIELD,
+                         foreground=C_TEXT, bordercolor=C_BORDER,
+                         lightcolor=C_BORDER, darkcolor=C_BORDER,
+                         padding=(px(PAD_S), px(PAD_XS)))
+        # ⚠ 别显式设 arrowsize —— clam 的 downarrow 元素被垂直拉伸时会**平铺**
+        #   箭头图案, 显式给小尺寸会叠出好几个 ∨ (实测 3 个)。留空让它用元素
+        #   自己的自然尺寸, 正好填满高度, 就只有一个。
+        # 下拉箭头那块的底色调成和 field 一样 (白), 否则右边会挂个灰方块,
+        # 把圆角右边缘咬掉一块
+        st.configure("TCombobox", selectbackground=C_SEL)
+        st.map("TCombobox",
+               fieldbackground=[("readonly", C_FIELD), ("disabled", C_CHROME)],
+               foreground=[("disabled", C_MUTED)],
+               arrowcolor=[("active", C_ACCENT)])
+        st.map("TEntry", foreground=[("disabled", C_MUTED)])
+
+        # ---- 列表: 行高与字号 (默认 rowheight 配 9pt 中文偏挤) ----
+        st.configure("Treeview", rowheight=px(24), font=FONT_UI,
+                     background=C_FIELD, fieldbackground=C_FIELD,
+                     foreground=C_TEXT, bordercolor=C_BORDER,
+                     lightcolor=C_BORDER, darkcolor=C_BORDER)
+        st.configure("Treeview.Heading", font=FONT_UI, background=C_CHROME,
+                     foreground=C_TEXT, padding=(px(PAD_S), px(PAD_XS)),
+                     relief="flat", bordercolor=C_BORDER)
+        st.map("Treeview.Heading", background=[("active", C_HILITE)])
+        # 选中行用**淡青底 + 深字** (Arduino 的 list.activeSelectionBackground
+        # 是 #00818433, 20% 透明青; Tk 不支持透明度, 这里用等值的白底混色)
+        st.map("Treeview", background=[("selected", C_SEL)],
+               foreground=[("selected", C_TEXT_HI)])
+
+        # ---- 按钮 ----
+        # 全部走**圆角** (见文件上方 install_round_button 的说明)。这里只给颜色和
+        # 状态, 形状由那套九宫格图负责。
+        #
+        # ⚠ 两条实测踩过的坑:
+        #   ① `background` 等颜色**必须是 '#RRGGBB' 字符串**。传元组 (255,255,255)
+        #      不会报错, 但按钮上的**文字会整个消失** —— 排查了半天。
+        #   ② 图必须留引用 (见 _ROUND_IMGS), 否则 GC 后渲染成**纯黑块**。
+        #
+        # outside = 按钮所在**容器**的底色, 会被烤进四角。放错地方四角就会露出一块
+        # 不对的色。所以页面上的按钮和框上的按钮是两套。
+
+        # Arduino 的按钮分两级底 + 一级无底, 这里照搬:
+        #   toolbar.button.background = #7FCBCD  → 工具栏/动作行 (常用)
+        #   button.background         = #008184  → 主操作 (一屏一个)
+        #   secondaryButton           = 无底 + 青字 → 低频/辅助
+        #
+        # ★ 所以 **TButton 默认就是"浅青实底"** (第二级) —— 一次到位, 不必逐个
+        #   按钮去标 style。要降级成"无底青字"的低频按钮才显式写 Plain.TButton。
+        #
+        # ⚠ 两条实测踩过的坑:
+        #   ① 颜色**必须是 '#RRGGBB' 字符串**。传元组 (255,255,255) 不报错, 但按钮上的
+        #      **文字会整个消失** —— 排查了半天。
+        #   ② 图必须留引用 (见 _ROUND_IMGS), 否则 GC 后渲染成**纯黑块**。
+        # outside = 按钮所在**容器**的底色, 会被烤进四角。放错地方四角会露出一块
+        # 不对的色。所以页面上的按钮和框上的按钮是两套。
+
+        # ⚠ 描边色**等于**填充色 = 看不见边框 = 纯平色块 (Arduino 就是这么做的)。
+        #   只在前两级这么干; 输入框和第三级才留一根 1px 发丝线。
+
+        # 第二级 · 动作按钮 · 放在白页面/面板上
+        install_round_button(st, "TButton", R4, C_FIELD, {
+            "":         (C_ACCENT_T2, C_ACCENT_T2),   # 淡青实底, 无描边
+            "active":   (C_ACCENT_LT, C_ACCENT_LT),   # 悬停 → Arduino 原值 #7FCBCD
+            "pressed":  (C_ACCENT,    C_ACCENT),
+            "disabled": (C_FIELD,     C_BORDER),
+        }, (px(PAD_M), px(PAD_XS)), C_ACCENT_DK)
+
+        # 第二级 · 落在 #ECF1F1 的框上 (顶部连接栏那排)
+        install_round_button(st, "Chrome.TButton", R4, C_CHROME, {
+            "":         (C_ACCENT_T2, C_ACCENT_T2),
+            "active":   (C_ACCENT_LT, C_ACCENT_LT),
+            "pressed":  (C_ACCENT,    C_ACCENT),
+            "disabled": (C_CHROME,    C_BORDER),
+        }, (px(PAD_M), px(PAD_XS)), C_ACCENT_DK)
+
+        # 第三级 · 低频/辅助按钮: **无实底**, 只有青字 (Arduino 的 secondaryButton)。
+        #   用在「…」选目录、状态栏「关于」、对话框的确定这类地方 —— 它们不需要抢注意力。
+        #   ⚠ 这级必须显式指定 style, 否则默认会拿到第二级的浅青实底。
+        install_round_button(st, "Plain.TButton", R4, C_FIELD, {
+            "":         (C_FIELD,    C_BORDER),
+            "active":   (C_HILITE,   C_BORDER_2),
+            "pressed":  (C_BORDER,   C_ACCENT),
+            "disabled": (C_FIELD,    C_CHROME),
+        }, (px(PAD_M), px(PAD_XS)), C_ACCENT)
+
+        # ★ 第一级 · 主操作 (连接 / 烧写): Arduino 的 button.background
+        #   = #008184 实底 + 浅字。一屏一个, 视线自然落上去。
+        install_round_button(st, "Accent.TButton", R4, C_CHROME, {
+            "":         (C_ACCENT,    C_ACCENT),   # 描边=填充 ⇒ 无边框, 纯平
+            "active":   (C_ACCENT_DK, C_ACCENT_DK),
+            "pressed":  (C_ACCENT_DK, C_ACCENT_DK),
+            "disabled": (C_CHROME,    C_CHROME),
+        }, (px(PAD_L), px(PAD_S)), C_WIDGET)
+
+        # 同样第一级, 但落在**白页面**上的主按钮 (擦除并烧写)
+        install_round_button(st, "AccentPage.TButton", R4, C_FIELD, {
+            "":         (C_ACCENT,    C_ACCENT),
+            "active":   (C_ACCENT_DK, C_ACCENT_DK),
+            "pressed":  (C_ACCENT_DK, C_ACCENT_DK),
+            "disabled": (C_CHROME,    C_CHROME),
+        }, (px(PAD_L), px(PAD_S)), C_WIDGET)
+
+        # 状态栏上的按钮 (深 teal 底) —— 平时跟底色一样, 悬停才浮出来
+        install_round_button(st, "Status.TButton", R4, C_BAR, {
+            "":       (C_BAR,      C_BAR),
+            "active": (C_ACCENT_DK, C_ACCENT_DK),
+            "pressed":(C_ACCENT_DK, C_ACCENT_DK),
+        }, (px(PAD_S), px(PAD_XS)), C_FIELD, FONT_UI)
+
+        # 进度条: progressBar.background = #005C5F, 槽用淡青 #7FCBCD
+        # 进度条: 填充 = progressBar.background (#005C5F 深青, 对比度拉满);
+        #   槽 = #DAE3E3。
+        #   ⚠ 槽**不能**用 #ECF1F1(C_CHROME) 或浅青 ——
+        #     · 浅青跟第二级按钮同色, 铺满一整行会把薄荷绿搞得太泛滥;
+        #     · #ECF1F1 在白页面上几乎等于背景, 0% 时整条看着像一根虚影 (用户实测反馈)。
+        st.configure("TProgressbar", background=C_ACCENT_DK, troughcolor=C_BORDER,
+                     bordercolor=C_BORDER_2, lightcolor=C_ACCENT_DK,
+                     darkcolor=C_ACCENT_DK, thickness=px(16))
+        st.configure("Vertical.TSeparator", background=C_BORDER)
 
     def _on_tab_changed(self, _evt=None):
+        # 切到 REPL 页时把键盘焦点交给终端 —— 否则光标不闪、敲字没反应
+        # (Text 控件只在有焦点时才显示插入光标)
         try:
-            if self.nb.select() == str(self.tab_repl):
+            if self.nb.select() is self.tab_repl:
                 self.txt_term.focus_set()
         except Exception:
             pass
@@ -1173,24 +1786,24 @@ class App(tk.Tk):
         #   烧写波特率只在烧写时用 (esptool), REPL 波特率在连接设备时用。
         #   两者可以不同 (例: 烧写 921600 求快, REPL 用固件实际的 115200)。
         rb = ttk.Frame(p)
-        rb.pack(fill="x", padx=8, pady=(8, 4))
+        rb.pack(fill="x", padx=px(8), pady=(px(8), px(4)))
         ttk.Label(rb, text=tr("repl_baud")).pack(side="left")
         self.cb_replbaud = ttk.Combobox(
             rb, width=10, state="readonly",
             values=["115200", "230400", "460800", "921600"])
         self.cb_replbaud.set(str(REPL_BAUD))
-        self.cb_replbaud.pack(side="left", padx=(4, 6))
+        self.cb_replbaud.pack(side="left", padx=(px(4), px(6)))
         ttk.Label(rb, text=tr("repl_baud_hint"),
-                  foreground="#666").pack(side="left")
+                  foreground=C_MUTED).pack(side="left")
 
         # ★ 终端区 —— **可直接在里面敲**, 没有单独的输入框。
         #   按键不本地插入, 而是原样发给板子; 屏幕上看到的字符是板子**回显**
         #   回来的 (MicroPython 的友好 REPL 会回显输入)。两处都插就会重影。
         self.txt_term = tk.Text(p, height=18, wrap="char",
-                                bg="#1e1e1e", fg="#d4d4d4",
-                                insertbackground="#d4d4d4",
-                                selectbackground="#264f78",
-                                font=("Consolas", 11),
+                                bg=C_TERM_BG, fg=C_TERM_FG,
+                                insertbackground=C_TERM_FG,
+                                selectbackground=C_TERM_SEL,
+                                font=FONT_MONO,
                                 undo=False)
         self.txt_term.pack(fill="both", expand=True, padx=8)
         self.txt_term.bind("<Key>", self.on_term_key)
@@ -1237,8 +1850,8 @@ class App(tk.Tk):
             self.txt_term.bind(seq, lambda e, c=code: self.term_send(c))
 
         row = ttk.Frame(p)
-        row.pack(fill="x", padx=8, pady=(6, 8))
-        ttk.Label(row, text=tr("term_hint"), foreground="#666").pack(side="left")
+        row.pack(fill="x", padx=px(8), pady=(px(6), px(8)))
+        ttk.Label(row, text=tr("term_hint"), foreground=C_MUTED).pack(side="left")
         # ★ 只做"切回普通 REPL"这**一个方向** —— 没有"手动进 raw"。
         #   raw 是文件操作用的**程序化**模式: 工具自己切进去、做完自己切出来,
         #   人没有理由主动进去 (键盘输入在里面本来就无效)。
@@ -1257,7 +1870,7 @@ class App(tk.Tk):
         p = self.tab_flash
 
         bar = ttk.Frame(p)
-        bar.pack(fill="x", padx=8, pady=8)
+        bar.pack(fill="x", padx=px(8), pady=8)
         ttk.Button(bar, text=tr("add_fw"),
                    command=self.on_add_fw).pack(side="left")
         ttk.Button(bar, text=tr("remove_sel"),
@@ -1265,7 +1878,7 @@ class App(tk.Tk):
         ttk.Button(bar, text=tr("clear"),
                    command=self.on_clear_fw).pack(side="left")
 
-        ttk.Label(bar, text=tr("flash_baud")).pack(side="left", padx=(20, 2))
+        ttk.Label(bar, text=tr("flash_baud")).pack(side="left", padx=(px(20), px(2)))
         self.cb_fbaud = ttk.Combobox(
             bar, width=10, state="readonly",
             values=["115200", "230400", "460800", "921600"])
@@ -1283,21 +1896,23 @@ class App(tk.Tk):
         self.tv_fw.heading("addr", text=tr("col_addr"))
         self.tv_fw.heading("file", text=tr("col_fw"))
         self.tv_fw.heading("size", text=tr("col_size"))
-        self.tv_fw.column("addr", width=100, anchor="center")
-        self.tv_fw.column("file", width=560)
-        self.tv_fw.column("size", width=110, anchor="e")
+        self.tv_fw.column("addr", width=px(100), anchor="center")
+        self.tv_fw.column("file", width=px(560))
+        self.tv_fw.column("size", width=px(110), anchor="e")
         self.tv_fw.pack(fill="both", expand=True, padx=8)
         self.tv_fw.bind("<Double-1>", self.on_edit_addr)
 
-        ttk.Label(p, foreground="#a33", justify="left",
-                  text=tr("erase_warn")).pack(fill="x", padx=8, pady=(6, 0))
+        ttk.Label(p, foreground=C_WARN, justify="left",
+                  text=tr("erase_warn")).pack(fill="x", padx=px(8), pady=(px(6), px(0)))
 
         run = ttk.Frame(p)
-        run.pack(fill="x", padx=8, pady=8)
+        run.pack(fill="x", padx=px(8), pady=8)
         self.var_erase = tk.BooleanVar(value=False)
         ttk.Checkbutton(run, text=tr("erase_first"),
                         variable=self.var_erase).pack(side="left")
+        # ★ 烧写是本页的**主操作** -> 用实底主按钮, 跟一层次要按钮拉开
         self.btn_flash = ttk.Button(run, text=tr("erase_and_flash"),
+                                    style="AccentPage.TButton",
                                     command=self.on_flash)
         self.btn_flash.pack(side="right")
 
@@ -1305,7 +1920,7 @@ class App(tk.Tk):
         # (原来只有一条光秃秃的进度条 + 下面一行"等待操作", 没头没尾,
         #  用户根本看不出那是什么栏)
         pbrow = ttk.Frame(p)
-        pbrow.pack(fill="x", padx=8, pady=(0, 4))
+        pbrow.pack(fill="x", padx=px(8), pady=(px(0), px(4)))
         ttk.Label(pbrow, text=tr("flash_progress")).pack(side="left")
         self.pb = ttk.Progressbar(pbrow, mode="determinate", maximum=100)
         self.pb.pack(side="left", fill="x", expand=True, padx=6)
@@ -1314,10 +1929,17 @@ class App(tk.Tk):
                   anchor="w").pack(side="left")
 
         # 烧写日志 —— 必须带标签, 否则就是个没头没尾的空白框
-        ttk.Label(p, text=tr("flash_log")).pack(anchor="w", padx=8, pady=(8, 0))
+        ttk.Label(p, text=tr("flash_log")).pack(anchor="w", padx=px(8), pady=(px(8), px(0)))
+        # ★ 用 Arduino 的**输出面板**配色: 纯黑底 + 白字
+        #   (arduino.output.background / .foreground 就是 #000000 / #ffffff)。
+        #   顺带统一了: 原先"终端 Consolas 11 / 日志 Consolas 9"两个等宽框两个字号,
+        #   现在都是 FONT_MONO。
         self.txt_flash = tk.Text(p, height=6, wrap="word",
-                                 bg="#f6f6f6", font=("Consolas", 9))
-        self.txt_flash.pack(fill="both", expand=True, padx=8, pady=(2, 8))
+                                 bg=C_OUT_BG, fg=C_OUT_FG,
+                                 insertbackground=C_OUT_FG,
+                                 selectbackground=C_ACCENT_LT,
+                                 relief="flat", font=FONT_MONO)
+        self.txt_flash.pack(fill="both", expand=True, padx=px(8), pady=(px(2), px(8)))
 
     # ---- 文件管理页 / files tab ----
     def _build_files_tab(self):
@@ -1325,11 +1947,11 @@ class App(tk.Tk):
 
         # 顶部提示条: 板子上没有 MicroPython 时这里说明原因 (正常时是空的)。
         # 见 _sync_file_ui —— 文件管理靠 MicroPython 的 os API, 没有它就没得管。
-        self.lbl_vfs_hint = ttk.Label(p, text="", foreground="#c00000")
+        self.lbl_vfs_hint = ttk.Label(p, text="", foreground=C_DANGER)
         self.lbl_vfs_hint.pack(fill="x", padx=8)
 
         pan = ttk.PanedWindow(p, orient="horizontal")
-        pan.pack(fill="both", expand=True, padx=8, pady=8)
+        pan.pack(fill="both", expand=True, padx=px(8), pady=8)
 
         # 左: 本地 / left: local
         left = ttk.LabelFrame(pan, text=tr("local_files"), padding=6)
@@ -1341,16 +1963,16 @@ class App(tk.Tk):
         e_loc = ttk.Entry(lb, textvariable=self.var_local)
         e_loc.pack(side="left", fill="x", expand=True)
         e_loc.bind("<Return>", lambda _e: self.refresh_local())   # 手改路径后按回车生效
-        ttk.Button(lb, text="…", width=3,
-                   command=self.on_pick_dir).pack(side="left", padx=(4, 0))
+        ttk.Button(lb, text="…", width=3, style="Plain.TButton",
+                   command=self.on_pick_dir).pack(side="left", padx=(px(4), px(0)))
 
         self.tv_local = ttk.Treeview(left, columns=("name", "size"),
                                      show="headings", selectmode="extended")
         self.tv_local.heading("name", text=tr("col_name"))
         self.tv_local.heading("size", text=tr("col_size"))
-        self.tv_local.column("name", width=260)
-        self.tv_local.column("size", width=90, anchor="e")
-        self.tv_local.pack(fill="both", expand=True, pady=(6, 0))
+        self.tv_local.column("name", width=px(260))
+        self.tv_local.column("size", width=px(90), anchor="e")
+        self.tv_local.pack(fill="both", expand=True, pady=(px(6), px(0)))
         self.tv_local.bind("<Double-1>", self.on_local_open)
 
         # 中: 操作按钮 / middle: buttons
@@ -1394,9 +2016,9 @@ class App(tk.Tk):
                                    show="headings", selectmode="extended")
         self.tv_dev.heading("name", text=tr("col_name"))
         self.tv_dev.heading("size", text=tr("col_size"))
-        self.tv_dev.column("name", width=260)
-        self.tv_dev.column("size", width=90, anchor="e")
-        self.tv_dev.pack(fill="both", expand=True, pady=(6, 0))
+        self.tv_dev.column("name", width=px(260))
+        self.tv_dev.column("size", width=px(90), anchor="e")
+        self.tv_dev.pack(fill="both", expand=True, pady=(px(6), px(0)))
         self.tv_dev.bind("<Double-1>", self.on_dev_open)
 
     # ------------------------------------------------------------------
@@ -1486,10 +2108,10 @@ class App(tk.Tk):
             self.var_status.set(tr("connected_status", port=self.sm._port))
             self.lbl_conn.configure(
                 text=tr("linked", port=self.sm._port, baud=self.sm._baud),
-                fg="#008000")
+                fg=C_OK)
         else:
             self.var_status.set(tr("ready"))
-            self.lbl_conn.configure(text=tr("not_connected"), fg="#c00000")
+            self.lbl_conn.configure(text=tr("not_connected"), fg=C_DANGER)
 
         self._sync_mode_ui()               # 「切回 REPL」按钮的可点状态
 
@@ -1545,20 +2167,20 @@ class App(tk.Tk):
         win.minsize(480, 360)
 
         head = ttk.Frame(win)
-        head.pack(fill="x", padx=14, pady=(12, 6))
+        head.pack(fill="x", padx=px(14), pady=(px(12), px(6)))
         ttk.Label(head, text="%s %s" % (APP_NAME, APP_VERSION),
-                  font=("", 14, "bold")).pack(anchor="w")
+                  font=FONT_H1).pack(anchor="w")
         ttk.Label(head, text=tr("about_build", stamp=build_stamp()),
-                  foreground="#666").pack(anchor="w")
+                  foreground=C_MUTED).pack(anchor="w")
         ttk.Label(head, text=APP_AUTHOR,
-                  foreground="#666").pack(anchor="w")
+                  foreground=C_MUTED).pack(anchor="w")
 
         txt = tk.Text(win, wrap="word", height=18, relief="flat",
-                      bg="#f6f6f6", padx=12, pady=10, spacing1=1,
-                      font=("", 10))
-        txt.pack(fill="both", expand=True, padx=14, pady=(4, 4))
+                      bg=C_WIDGET, fg=C_TEXT, padx=px(12), pady=px(10), spacing1=1,
+                      font=FONT_UI)
+        txt.pack(fill="both", expand=True, padx=px(14), pady=(px(4), px(4)))
         # 小标题加粗: 文案里以 '#' 开头的行当标题 (两门语言共用这个约定)
-        txt.tag_configure("h", font=("", 10, "bold"), spacing1=8, spacing3=2)
+        txt.tag_configure("h", font=FONT_UI_BOLD, spacing1=8, spacing3=2)
         for ln in tr("about_body"):
             if ln.startswith("#"):
                 txt.insert("end", ln[1:] + "\n", "h")
@@ -1566,8 +2188,8 @@ class App(tk.Tk):
                 txt.insert("end", ln + "\n")
         txt.configure(state="disabled")         # 只读, 但**能选中复制**
 
-        ttk.Button(win, text=tr("ok"), width=10,
-                   command=win.destroy).pack(pady=(0, 12))
+        ttk.Button(win, text=tr("ok"), width=10, style="Plain.TButton",
+                   command=win.destroy).pack(pady=(px(0), px(12)))
         win.bind("<Escape>", lambda _e: win.destroy())
         win.focus_set()
 
@@ -2210,7 +2832,7 @@ class App(tk.Tk):
         self.var_status.set(tr("connected_status", port=self.sm._port))
         self.lbl_conn.configure(          # 指示灯: 红 → 绿
             text=tr("linked", port=self.sm._port, baud=self.sm._baud),
-            fg="#008000")
+            fg=C_OK)
         self._start_reader()               # 终端实时回显
         self.txt_term.focus_set()
         self._sync_mode_ui()
@@ -2236,7 +2858,7 @@ class App(tk.Tk):
         self.btn_conn.configure(state="normal")
         self.btn_disc.configure(state="disabled")
         self.var_status.set(tr("disconnected"))
-        self.lbl_conn.configure(text=tr("not_connected"), fg="#c00000")
+        self.lbl_conn.configure(text=tr("not_connected"), fg=C_DANGER)
         self.tv_dev.delete(*self.tv_dev.get_children())
         self._sync_mode_ui()               # 没连接 → 「切回 REPL」置灰
         self._sync_file_ui()               # 没连接 → 文件管理置灰
@@ -2500,7 +3122,7 @@ class App(tk.Tk):
         dlg.title(tr("rename_title"))
         dlg.transient(self)
         dlg.grab_set()
-        ttk.Label(dlg, text=tr("new_name")).pack(padx=12, pady=(12, 4))
+        ttk.Label(dlg, text=tr("new_name")).pack(padx=px(12), pady=(px(12), px(4)))
         ent = ttk.Entry(dlg, width=36)
         ent.pack(padx=12)
         ent.insert(0, old)
@@ -2522,7 +3144,7 @@ class App(tk.Tk):
             self.run_bg(work)
 
         ent.bind("<Return>", lambda e: ok())
-        ttk.Button(dlg, text=tr("ok"), command=ok).pack(pady=10)
+        ttk.Button(dlg, text=tr("ok"), style="Plain.TButton", command=ok).pack(pady=10)
 
     # ------------------------------------------------------------------
     # 烧写 / flashing
@@ -2565,7 +3187,7 @@ class App(tk.Tk):
         dlg.title(tr("addr_title"))
         dlg.transient(self)
         dlg.grab_set()
-        ttk.Label(dlg, text=tr("addr_label")).pack(padx=12, pady=(12, 4))
+        ttk.Label(dlg, text=tr("addr_label")).pack(padx=px(12), pady=(px(12), px(4)))
         ent = ttk.Entry(dlg, width=24)
         ent.pack(padx=12)
         ent.insert(0, cur)
@@ -2581,7 +3203,7 @@ class App(tk.Tk):
                 messagebox.showerror(APP_NAME, tr("addr_bad", txt=txt))
 
         ent.bind("<Return>", lambda e: ok())
-        ttk.Button(dlg, text=tr("ok"), command=ok).pack(pady=10)
+        ttk.Button(dlg, text=tr("ok"), style="Plain.TButton", command=ok).pack(pady=10)
 
     def on_read_chip(self):
         """走 ROM bootloader 读芯片信息。

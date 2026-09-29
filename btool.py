@@ -739,22 +739,17 @@ LANG = {
         "cal_mag": "地磁校准",
         "close": "关闭",
         "cal_ch": "通道",
-        "cal_test": "试转角度",
-        "cal_go": "转到",
-        "cal_read": "读取板子上的值",
-        "cal_reset": "全部恢复默认",
+        "cal_joint": "关节",
+        "cal_point": "基准角",
+        "cal_actual": "实际角度",
+        "cal_step_hint": "(↑↓ 微调, 步长 1)",
+        "cal_set": "设置",
+        "cal_set_ok": "已设置 {ch} 的 {p}° 基准角 → {deg:.1f}°",
+        "cal_range": "角度要在 0~180 之间",
+        "cal_read": "刷新",
         "cal_start": "开始校准",
-        "cal_moved": "已把 {ch} 转到 {deg:.1f}°",
         "cal_bad_angle": "试转角度不是数字",
-        "cal_bad_num": "{ch} 的 {p}° 点填的 {val!r} 不是数字",
         "cal_read_n": "已读取 {n} 个标定点, 各框已填上板子当前的值",
-        "cal_reset_hint": "已把 24 个格子填回出厂默认 (0/90/180)。\n"
-                          "这只是填格子, 没写板子 —— 确认后按 [写入]。",
-        "cal_writing": "正在写入 … (舵机会逐个转到参考角, 抽动是正常的)",
-        "cal_servo_hint":
-            "让「命令角度」和「舵机实际转到的角度」对上。\n"
-            "做法: 点某行的 [转到], 看那条腿实际指到哪儿, 把实际角度填进那一格。\n"
-            "⚠ 写入时舵机会立刻逐个转到参考角 —— 24 下抽动是正常的, 别按急停。",
         "cal_imu_hint":
             "⚠ 校准期间狗必须水平放稳、不要碰。\n"
             "它会采样一段时间求零偏。中间晃动会把偏置算歪, 而算歪的表现是"
@@ -1022,23 +1017,17 @@ LANG = {
         "cal_mag": "Magnetometer",
         "close": "Close",
         "cal_ch": "Channel",
-        "cal_test": "Test angle",
-        "cal_go": "Move",
-        "cal_read": "Read from board",
-        "cal_reset": "Reset to default",
+        "cal_joint": "Joint",
+        "cal_point": "Reference",
+        "cal_actual": "Actual angle",
+        "cal_step_hint": "(\u2191\u2193 to nudge by 1)",
+        "cal_set": "Set",
+        "cal_set_ok": "Set {ch} {p}\u00b0 reference \u2192 {deg:.1f}\u00b0",
+        "cal_range": "Angle must be between 0 and 180",
+        "cal_read": "Refresh",
         "cal_start": "Start",
-        "cal_moved": "Moved {ch} to {deg:.1f}\u00b0",
         "cal_bad_angle": "Test angle is not a number",
-        "cal_bad_num": "{ch} {p}\u00b0 point has {val!r}, not a number",
         "cal_read_n": "Read {n} calibration points into the fields",
-        "cal_reset_hint": "Fields reset to factory default (0/90/180).\n"
-                          "This only fills the fields — press [Write] to apply.",
-        "cal_writing": "Writing ... (each servo jumps to its reference angle)",
-        "cal_servo_hint":
-            "Make the commanded angle match where the servo actually points.\n"
-            "Click a row's [Move], see where that leg points, type the ACTUAL "
-            "angle into that cell.\n"
-            "\u26a0 Writing makes every servo jump to its reference angle.",
         "cal_imu_hint":
             "\u26a0 The dog must sit level and still during calibration.\n"
             "It averages out the bias; moving mid-way skews it, and a skewed "
@@ -2373,6 +2362,7 @@ class App(tk.Tk):
         self._cal_win = None               # 当前开着的校准框 (没开是 None)
         self._cal_log = None               # 它的输出区写入口
         self._cal_poll = False             # 地磁采集的进度轮询开关
+        self._last_mode_key = None         # (已连接, 是否raw) —— 变没变, 见 _sync_mode_ui
         self._drain_id = None              # UI 消息泵的定时器 id (关窗时要取消)
         self._port_timer = None            # 串口轮询的定时器 id
 
@@ -3390,39 +3380,93 @@ class App(tk.Tk):
     def on_cal_servo(self):
         if not self._cal_guard():
             return
-        win, body = self._cal_dlg(tr("cal_servo"), 700, 560)
-        ttk.Label(body, text=tr("cal_servo_hint"), justify="left",
-                  foreground=C_TEXT).pack(fill="x")
+        win, body = self._cal_dlg(tr("cal_servo"), 560, 470)
 
+        # ---- 通道 / 角度 表: **只读**, 只显示读上来的值 ----
+        # 不做成输入框是有意的 —— 改标定的入口统一在下面那个校准栏, 一次一个值。
+        # 24 个格子同时可编辑时, 改错了根本看不出是哪一格改的。
         tbl = ttk.Frame(body)
-        tbl.pack(fill="x", pady=(px(PAD_S), 0))
-        for c, head in enumerate((tr("cal_ch"), "0°", "90°", "180°", tr("cal_test"))):
-            ttk.Label(tbl, text=head).grid(row=0, column=c, padx=px(PAD_XS),
-                                           pady=px(PAD_XS), sticky="w")
-        self.cal_vars = {}
-        self.cal_test = tk.StringVar(value="90")
+        tbl.pack(fill="x")
+        for c, head in enumerate((tr("cal_ch"), "0°", "90°", "180°")):
+            ttk.Label(tbl, text=head, font=FONT_UI_BOLD).grid(
+                row=0, column=c, padx=px(PAD_M), pady=px(PAD_XS), sticky="w")
+        self.cal_cells = {}
         for r, name in enumerate(SERVO_CH_NAMES):
-            ttk.Label(tbl, text=name, width=9).grid(row=r + 1, column=0,
-                                                    sticky="w", padx=px(PAD_XS))
+            ttk.Label(tbl, text="%d  %s" % (r, name), width=12).grid(
+                row=r + 1, column=0, sticky="w", padx=px(PAD_XS))
             for p in range(3):
-                v = tk.StringVar(value="%.1f" % SERVO_CAL_DEFAULT[p])
-                self.cal_vars[(r, p)] = v
-                ttk.Entry(tbl, textvariable=v, width=8).grid(
-                    row=r + 1, column=p + 1, padx=px(PAD_XS), pady=px(1))
-            ttk.Entry(tbl, textvariable=self.cal_test, width=6).grid(
-                row=r + 1, column=4, padx=(px(PAD_L), px(PAD_XS)))
-            ttk.Button(tbl, text=tr("cal_go"), width=6,
-                       command=lambda ch=r: self.on_cal_move(ch)).grid(
-                row=r + 1, column=5, padx=px(PAD_XS), pady=px(1), sticky="w")
+                lab = ttk.Label(tbl, text="—", width=9, anchor="e")
+                lab.grid(row=r + 1, column=p + 1, padx=px(PAD_M), pady=px(1))
+                self.cal_cells[(r, p)] = lab
 
-        self.cal_txt = self._cal_out(body)
-        self._wire_cal_log(self.cal_txt)
-        self._cal_footer(body, (
-            (tr("cal_read"), self.on_cal_read, None),
-            (tr("cal_reset"), self.on_cal_reset, None),
-            (tr("dog_write"), self.on_cal_write, "AccentPage.TButton"),
-        ))
+        # ---- 校准栏: 关节 / 基准角 / 实际角度 / 设置 ----
+        # 这三项**正好是 cal_point(ch, point, deg) 的三个入参**, 一一对应。
+        lf = ttk.Labelframe(body, text=tr("dog_cal"),
+                            padding=(px(PAD_M), px(PAD_S)))
+        lf.pack(fill="x", pady=(px(PAD_L), 0))
+
+        r1 = ttk.Frame(lf)
+        r1.pack(fill="x")
+        ttk.Label(r1, text=tr("cal_joint")).pack(side="left", padx=(0, px(PAD_XS)))
+        # 下拉里带编号, 跟上面那张表的编号一一对应 ——
+        # 不然"第 3 个通道是哪个"还得靠数
+        self.cb_cal_ch = ttk.Combobox(
+            r1, state="readonly", width=15,
+            values=["%d  %s" % (i, n) for i, n in enumerate(SERVO_CH_NAMES)])
+        self.cb_cal_ch.current(0)
+        self.cb_cal_ch.pack(side="left")
+        self.cb_cal_ch.bind("<<ComboboxSelected>>", lambda _e: self._cal_pick())
+
+        ttk.Label(r1, text=tr("cal_point")).pack(side="left",
+                                                 padx=(px(PAD_L), px(PAD_XS)))
+        self.var_cal_pt = tk.IntVar(value=1)
+        for p, txt in ((0, "0°"), (1, "90°"), (2, "180°")):
+            ttk.Radiobutton(r1, text=txt, value=p, variable=self.var_cal_pt,
+                            command=self._cal_pick).pack(side="left", padx=px(PAD_XS))
+
+        r2 = ttk.Frame(lf)
+        r2.pack(fill="x", pady=(px(PAD_S), 0))
+        ttk.Label(r2, text=tr("cal_actual")).pack(side="left", padx=(0, px(PAD_XS)))
+        self.var_cal_val = tk.StringVar(value="90.0")
+        ent = ttk.Entry(r2, textvariable=self.var_cal_val, width=10,
+                        justify="right")
+        ent.pack(side="left")
+        # ★ 上下键微调, 步长 1。校准就是"差一点点"的活 —— 用鼠标选中再敲数字太慢,
+        #   而且敲的时候容易把小数点丢了。
+        ent.bind("<Up>", lambda _e: self._cal_step(+1.0))
+        ent.bind("<Down>", lambda _e: self._cal_step(-1.0))
+        ttk.Label(r2, text=tr("cal_step_hint"),
+                  foreground=C_MUTED).pack(side="left", padx=px(PAD_S))
+        ttk.Button(r2, text=tr("cal_set"), width=10, style="AccentPage.TButton",
+                   command=self.on_cal_set).pack(side="right")
+
+        self._cal_footer(body, ((tr("cal_read"), self.on_cal_read, None),))
+        self._cal_pick()
         self.on_cal_read()
+
+    def _cal_sel(self):
+        """当前选中的 (通道号, 基准点号) —— cal_point 的前两个入参"""
+        return self.cb_cal_ch.current(), int(self.var_cal_pt.get())
+
+    def _cal_pick(self):
+        """换了关节或基准角 -> 把表里那个数填进输入框, 当微调的起点。
+
+        不这么做的话, 用户得先照着表把数字抄进输入框, 抄错一位就白调一轮。
+        """
+        lab = getattr(self, "cal_cells", {}).get(self._cal_sel())
+        if lab is not None:
+            cur = lab.cget("text")
+            if cur and cur != "—":
+                self.var_cal_val.set(cur)
+
+    def _cal_step(self, d):
+        try:
+            v = float((self.var_cal_val.get() or "0").strip())
+        except ValueError:
+            v = 0.0
+        v = min(180.0, max(0.0, v + d))
+        self.var_cal_val.set("%.1f" % v)
+        return "break"          # 别让 Entry 再处理这个键, 否则光标会跳
 
     def on_cal_read(self):
         if not self._cal_guard():
@@ -3430,69 +3474,54 @@ class App(tk.Tk):
 
         def work():
             try:
-                vals, raw = servo_read_cal(self.sm)
+                vals, _raw = servo_read_cal(self.sm)
                 self.post("cal_servo_vals", vals=vals)
-                self.post("cal_log", text=tr("cal_read_n", n=len(vals)))
+                self.post("status", text=tr("cal_read_n", n=len(vals)))
             except Exception as e:
-                self.post("cal_log", text="%s" % e)
+                self.post("msgbox_err", text="%s" % e)
 
         self.run_bg(work)
 
-    def on_cal_reset(self):
-        """把 24 个格子填回出厂值 —— **只填格子, 不写板子**。
+    def on_cal_set(self):
+        """把 (关节, 基准角, 实际角度) 写进板子 —— 就是 cal_point 的三个入参。
 
-        不直接写盘是有意的: 写标定会当场驱动舵机, 24 下连抽, 而"我想恢复默认"
-        和"我现在就要写进去"是两件事。填完格子由用户自己按 [写入]。
+        ⚠ 固件里 servo_set_cal_point() 写完会**立刻把舵机驱动到那个参考角**
+          (绕过校准, 直接给参考角)。所以点一下设置, 那条腿会当场动一下 ——
+          这是有意的: 边看边调, 觉得不对就上下键微调再点一次。
         """
-        for key, v in self.cal_vars.items():
-            v.set("%.1f" % SERVO_CAL_DEFAULT[key[1]])
-        self._cal_log(tr("cal_reset_hint"))
-
-    def on_cal_move(self, ch):
         if not self._cal_guard():
             return
+        ch, p = self._cal_sel()
+        raw = (self.var_cal_val.get() or "").strip()
         try:
-            deg = float((self.cal_test.get() or "").strip())
+            deg = float(raw)
         except ValueError:
             messagebox.showwarning(APP_NAME, tr("cal_bad_angle"))
             return
-
-        def work():
-            try:
-                self.post("cal_log", text=servo_move(self.sm, ch, deg) or
-                          tr("cal_moved", ch=SERVO_CH_NAMES[ch], deg=deg))
-            except Exception as e:
-                self.post("cal_log", text="%s" % e)
-
-        self.run_bg(work)
-
-    def on_cal_write(self):
-        if not self._cal_guard():
+        if not 0.0 <= deg <= 180.0:
+            messagebox.showwarning(APP_NAME, tr("cal_range"))
             return
-        pairs = []
-        for (ch, p), v in self.cal_vars.items():
-            raw = (v.get() or "").strip()
-            try:
-                pairs.append(((ch, p), float(raw)))
-            except ValueError:
-                messagebox.showwarning(APP_NAME, tr("cal_bad_num",
-                                                    ch=SERVO_CH_NAMES[ch], p=p * 90,
-                                                    val=raw))
-                return
 
         def work():
-            self.post("cal_log", text=tr("cal_writing"))
             try:
-                self.post("cal_log", text=servo_write_cal(self.sm, pairs))
+                servo_write_cal(self.sm, [((ch, p), deg)])
+                vals, _raw = servo_read_cal(self.sm)     # 写完把表刷新一遍
+                self.post("cal_servo_vals", vals=vals)
+                self.post("status", text=tr("cal_set_ok",
+                                            ch=SERVO_CH_NAMES[ch],
+                                            p=p * 90, deg=deg))
             except Exception as e:
-                self.post("cal_log", text="%s" % e)
+                self.post("msgbox_err", text="%s" % e)
 
         self.run_bg(work)
 
     def _fill_cal(self, vals):
+        """把读回来的值填进那张只读表"""
         for key, v in (vals or {}).items():
-            if key in self.cal_vars:
-                self.cal_vars[key].set("%.1f" % v)
+            lab = getattr(self, "cal_cells", {}).get(key)
+            if lab is not None:
+                lab.configure(text="%.1f" % v)
+        self._cal_pick()
 
     # ---- ② 加速度计与陀螺仪校准 ----
     def on_cal_imu(self):
@@ -4335,9 +4364,19 @@ class App(tk.Tk):
             raw = self.sm.mode == "raw"
             self.btn_raw.configure(
                 state="normal" if (raw and self.sm.is_open) else "disabled")
-            if self.sm.is_open:
-                s = tr("connected_status", port=self.sm._port)
-                self.var_status.set(s + ("   [raw]" if raw else ""))
+            # ⚠ 只在**模式真的变了**的时候才动状态栏。
+            #   这个方法会被 run_bg 的 finally 每轮都调一次 (统一收尾切回 REPL),
+            #   无条件写的话会把刚才那条操作结果**当场覆盖**掉 —— 用户点「设置」,
+            #   状态栏却只显示"已连接 COM5", 看着像什么都没发生。
+            #   实测: 校准框里点设置, 成功消息一条都留不住。
+            key = (self.sm.is_open, raw)
+            if key != self._last_mode_key:
+                self._last_mode_key = key
+                if self.sm.is_open:
+                    s = tr("connected_status", port=self.sm._port)
+                    self.var_status.set(s + ("   [raw]" if raw else ""))
+                else:
+                    self.var_status.set(tr("ready"))
         except Exception:
             pass
 

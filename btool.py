@@ -746,7 +746,6 @@ LANG = {
         "cal_set": "设置",
         "cal_set_ok": "已设置 {ch} 的 {p}° 基准角 → {deg:.1f}°",
         "cal_range": "角度要在 0~180 之间",
-        "cal_read": "刷新",
         "cal_start": "开始校准",
         "cal_bad_angle": "试转角度不是数字",
         "cal_read_n": "已读取 {n} 个标定点, 各框已填上板子当前的值",
@@ -1024,7 +1023,6 @@ LANG = {
         "cal_set": "Set",
         "cal_set_ok": "Set {ch} {p}\u00b0 reference \u2192 {deg:.1f}\u00b0",
         "cal_range": "Angle must be between 0 and 180",
-        "cal_read": "Refresh",
         "cal_start": "Start",
         "cal_bad_angle": "Test angle is not a number",
         "cal_read_n": "Read {n} calibration points into the fields",
@@ -3440,9 +3438,12 @@ class App(tk.Tk):
         ttk.Button(r2, text=tr("cal_set"), width=10, style="AccentPage.TButton",
                    command=self.on_cal_set).pack(side="right")
 
-        self._cal_footer(body, ((tr("cal_read"), self.on_cal_read, None),))
+        # 底部只有「关闭」—— 没有「刷新」按钮了。
+        # 表在**开框时**读一次、**每次设置后**再读一次, 两头都堵上了;
+        # 手动刷新只剩"在别处改了标定想同步"这一种用场, 不值一个按钮。
+        self._cal_footer(body, ())
         self._cal_pick()
-        self.on_cal_read()
+        self.on_cal_read()          # 开框自动读一次
 
     def _cal_sel(self):
         """当前选中的 (通道号, 基准点号) —— cal_point 的前两个入参"""
@@ -3469,6 +3470,11 @@ class App(tk.Tk):
         return "break"          # 别让 Entry 再处理这个键, 否则光标会跳
 
     def on_cal_read(self):
+        """读一遍板子的标定, 重画上面那张表。
+
+        **没有对应的按钮** —— 它只在两个时机被调: 开框时、以及每次「设置」之后
+        (见 on_cal_set)。这样表和板子不会不一致, 用户也不用记得去点刷新。
+        """
         if not self._cal_guard():
             return
 

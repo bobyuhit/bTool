@@ -621,7 +621,8 @@ LANG = {
         # 机器狗设置页
         "dog_need_conn": "先连接板子才能读写机器狗参数",
         "dog_need_mppy": "板子上没跑 MicroPython, 读不到机器狗参数",
-        "dog_intro": ("这些参数写进板子的 NVS, 掉电不丢。改完点「写入板子」立刻生效。"
+        "dog_intro": ("这些参数写进板子的 NVS, 掉电不丢。每栏右边各有「读取 / 写入」, "
+                      "只作用于那一栏。"
                       "\n⚠ 前后髋距 / 左右髋宽填的是半距 / 半宽 —— 填全长会得到两倍大的机身。"),
         "dog_geo_leg": "腿部几何",
         "dog_l1": "大腿 L1",
@@ -635,15 +636,23 @@ LANG = {
         "dog_center": "重心偏移",
         "dog_mm": "mm",
         "dog_deg": "度",
-        "dog_read": "读取当前值",
-        "dog_write": "写入板子",
+        "dog_hip_min": "髋角 min",
+        "dog_hip_max": "髋角 max",
+        "dog_knee_min": "膝角 min",
+        "dog_knee_max": "膝角 max",
+        "dog_read": "读取",
+        "dog_write": "写入",
         "dog_reading": "正在读机器狗参数…",
         "dog_writing": "正在写入机器狗参数…",
         "dog_read_ok": "已读取, 各框已填上板子当前的值",
         "dog_write_ok": "已写入板子 (NVS 已保存, 掉电不丢)",
         "dog_write_partial": "部分参数被板子拒绝 —— 看下面的输出, 被拒的会保持原值",
-        "dog_log": "输出",
         "dog_bad_num": "「%s」里的 %r 不是数字 —— 请填一个数 (如 40 或 62.5)",
+        "dog_read_empty": "没读到任何参数 —— 板子上有 bpuppy_motion 模块吗?",
+        "dog_reject_title": "板子拒绝了参数",
+        "dog_reject_body": "板子拒绝了其中一些值, 它们保持原样:\n\n%s",
+        "dog_no_reply_title": "板子没回话",
+        "dog_no_reply": "板子没有回话, 这次写入可能没生效。原始回显:\n\n%s",
 
         # 烧写页
         "add_fw": "添加固件…",
@@ -758,6 +767,8 @@ LANG = {
         "rename_title": "重命名",
         "new_name": "新名称:",
         "ok": "确定",
+        "copy": "复制",
+        "copied": "已复制",
 
         "no_esptool": "缺少 esptool:  pip install esptool",
         "no_fw": "先添加固件文件",
@@ -839,7 +850,7 @@ LANG = {
         "dog_need_conn": "Connect to the board first",
         "dog_need_mppy": "No MicroPython on the board — cannot read dog params",
         "dog_intro": ("These are written to the board's NVS and survive power-off. "
-                      "Click Write to apply."
+                      "Each row has its own Read / Write."
                       "\n⚠ Body length/width take HALF values — a full length "
                       "gives you a body twice as big."),
         "dog_geo_leg": "Leg geometry",
@@ -854,15 +865,23 @@ LANG = {
         "dog_center": "CoG offset",
         "dog_mm": "mm",
         "dog_deg": "deg",
-        "dog_read": "Read from board",
-        "dog_write": "Write to board",
+        "dog_hip_min": "Hip min",
+        "dog_hip_max": "Hip max",
+        "dog_knee_min": "Knee min",
+        "dog_knee_max": "Knee max",
+        "dog_read": "Read",
+        "dog_write": "Write",
         "dog_reading": "Reading dog parameters…",
         "dog_writing": "Writing dog parameters…",
         "dog_read_ok": "Read back — fields now hold the board's values",
         "dog_write_ok": "Written to the board (saved in NVS)",
         "dog_write_partial": "Some values were rejected — see the output below",
-        "dog_log": "Output",
         "dog_bad_num": "\u300c%s\u300d has %r, which is not a number — enter e.g. 40 or 62.5",
+        "dog_read_empty": "No parameters came back — does the board have bpuppy_motion?",
+        "dog_reject_title": "Values rejected",
+        "dog_reject_body": "The board rejected some values; they keep their old ones:\n\n%s",
+        "dog_no_reply_title": "No reply from the board",
+        "dog_no_reply": "The board did not answer; this write may not have applied. Raw reply:\n\n%s",
 
         "add_fw": "Add firmware…",
         "remove_sel": "Remove",
@@ -980,6 +999,8 @@ LANG = {
         "rename_title": "Rename",
         "new_name": "New name:",
         "ok": "OK",
+        "copy": "Copy",
+        "copied": "Copied",
 
         "no_esptool": "esptool missing:  pip install esptool",
         "no_fw": "Add a firmware file first",
@@ -1628,23 +1649,43 @@ def dev_mkdir(sm, path):
 #   把它们打印出来。所以下面只能从打印文本里抠, 抠不到就保持原值不动,
 #   不让"读不全"变成"读失败"。
 
-DOG_GEO_KEYS = ("L1", "L2", "BL", "BW")
+DOG_SECTIONS = {
+    "leg":    ("L1", "L2"),
+    "body":   ("BL", "BW"),
+    "limits": ("HMIN", "HMAX", "KMIN", "KMAX"),
+    "center": ("OFF",),
+}
 DOG_ALL_KEYS = ("L1", "L2", "BL", "BW", "HMIN", "HMAX", "KMIN", "KMAX", "OFF")
 
+# 栏 → 对应的板子 setter。每栏一个, **点哪栏就只下发哪栏** ——
+# 全量重写会把用户没动过的参数也过一遍, 万一板子那边状态变了 (比如正在走),
+# 一个本来没事的值就可能被拒, 然后在输出里报一条看不懂的警告。
+DOG_SETTERS = {
+    "leg":    "m.cal_ik(%.4f, %.4f)",
+    "body":   "m.set_body_dims(%.4f, %.4f)",
+    "limits": "m.set_joint_limits(%.4f, %.4f, %.4f, %.4f)",
+    "center": "print('CENTER', m.set_center(%.4f))",
+}
 
-def dog_read_params(sm):
-    """读回机器狗几何参数。返回 (dict, 板子的原始输出)。
+# 每栏读的是哪些字段。腿长/机身走 get_geometry() 的元组; 限位和重心**没有
+# getter**, 只能从 show_geometry() 的打印文本里抠。
+DOG_FROM_TUPLE = ("leg", "body")
 
-    dict 里**只包含真的读到的那几项** —— 调用方按 key 判断哪些没读到,
-    别拿默认值去覆盖用户正在编辑的框。
+
+def dog_read_params(sm, section=None):
+    """读回机器狗几何参数。section=None 读全, 否则只留那一栏的字段。
+
+    返回 (dict, 板子的原始输出)。dict 里**只包含真的读到的那几项** ——
+    调用方按 key 判断哪些没读到, 别拿默认值去覆盖用户正在编辑的框。
     """
     out, err = sm.raw_exec(
         "import bpuppy_motion as m" + chr(10) +
         "g = m.get_geometry()" + chr(10) +
         "print('GEO %.3f %.3f %.3f %.3f' % (g[0], g[1], g[2], g[3]))" + chr(10) +
         "m.show_geometry()" + chr(10), timeout=6.0)
+    raw = (out or "") + (err or "")
     vals = {}
-    for line in (out or "").splitlines():
+    for line in raw.splitlines():
         line = line.strip()
         if line.startswith("GEO "):
             try:
@@ -1652,11 +1693,11 @@ def dog_read_params(sm):
             except ValueError:
                 continue
             if len(got) == 4:
-                vals.update(zip(DOG_GEO_KEYS, got))
+                vals.update(zip(("L1", "L2", "BL", "BW"), got))
     for pat, keys in ((r"Hip:\s*([0-9.]+)\s*~\s*([0-9.]+)", ("HMIN", "HMAX")),
                       (r"Knee:\s*([0-9.]+)\s*~\s*([0-9.]+)", ("KMIN", "KMAX")),
                       (r"Offset:\s*(-?[0-9.]+)", ("OFF",))):
-        m = re.search(pat, out or "")
+        m = re.search(pat, raw)
         if not m:
             continue
         for k, v in zip(keys, m.groups()):
@@ -1664,33 +1705,29 @@ def dog_read_params(sm):
                 vals[k] = float(v)
             except ValueError:
                 pass
-    return vals, (out or "") + (err or "")
+    if section:
+        want = set(DOG_SECTIONS[section])
+        vals = {k: v for k, v in vals.items() if k in want}
+    return vals, raw
 
 
-def dog_write_params(sm, vals):
-    """把参数写进板子 (NVS 持久化), 返回板子的原始输出。
+def dog_write_params(sm, vals, section):
+    """把**某一栏**的参数写进板子 (NVS 持久化), 返回板子的原始输出。
 
-    **一次全写**, 不挑哪些改过 —— 板子上每个 setter 都是幂等的, 而"哪些改过"
-    要在界面上比对一遍, 多一处可能不同步的状态。被拒的参数板子会自己打印
-    原因 (形如 "⚠ 腿长非法! ..."), 那几行原样回给用户看, 不吞。
+    被拒的参数板子会自己打印原因 (形如 "⚠ 腿长非法! ..."), 那几行原样回给
+    用户看, 不吞 —— 界面靠有没有那个警告符决定报"已写入"还是"部分被拒"。
     """
-    code = (
-        "import bpuppy_motion as m" + chr(10) +
-        "m.cal_ik(%.4f, %.4f)" + chr(10) +
-        "m.set_body_dims(%.4f, %.4f)" + chr(10) +
-        "m.set_joint_limits(%.4f, %.4f, %.4f, %.4f)" + chr(10) +
-        "print('CENTER', m.set_center(%.4f))" + chr(10) +
-        "g = m.get_geometry()" + chr(10) +
-        # ⚠ 末行整句都要**双写百分号** —— 它是发给**板子**的 print, 那四个 %.3f
-        #   在板子上求值 (g[0..3]), 不是本函数的格式占位符。少转义一个,
-        #   这里的 % 运算符就会抱怨"参数不够" —— 而且报的是 TypeError,
-        #   不看这行根本想不到问题出在一句"打印"上。
-        "print('NOW %%.3f %%.3f %%.3f %%.3f' %% (g[0], g[1], g[2], g[3]))" + chr(10)
-    ) % (vals["L1"], vals["L2"], vals["BL"], vals["BW"],
-         vals["HMIN"], vals["HMAX"], vals["KMIN"], vals["KMAX"], vals["OFF"])
+    keys = DOG_SECTIONS[section]
+    code = ("import bpuppy_motion as m" + chr(10) +
+            (DOG_SETTERS[section] % tuple(vals[k] for k in keys)) + chr(10) +
+            "g = m.get_geometry()" + chr(10) +
+            # ⚠ 这行的百分号**写单数** —— % 运算符只作用在上面那个 setter 模板上
+            #   (DOG_SETTERS[section] % args), 整段拼接**没有**再格式化一次。
+            #   写成 %% 反而会把两个百分号原样发到板子上 -> SyntaxError。
+            #   (改动这段时先数清楚: % 作用在哪一段, 那一段之外就是普通字符。)
+            "print('NOW %.3f %.3f %.3f %.3f' % (g[0], g[1], g[2], g[3]))" + chr(10))
     out, err = sm.raw_exec(code, timeout=8.0)
     return (out or "") + (err or "")
-
 
 
 class CircleButton(tk.Label):
@@ -2718,8 +2755,21 @@ class App(tk.Tk):
             self.set_busy(True)
 
     # ---- 机器狗设置页 / robot dog tab ----
+    # 栏 → 该栏的 (输入框, 按钮) 引用。_sync_dog_ui 靠它统一置灰。
+    DOG_GROUPS = (
+        ("leg",    "dog_geo_leg",  (("L1", "dog_l1", "40", "mm"),
+                                    ("L2", "dog_l2", "45", "mm"))),
+        ("body",   "dog_geo_body", (("BL", "dog_body_l", "62.5", "mm"),
+                                    ("BW", "dog_body_w", "59", "mm"))),
+        ("limits", "dog_limits",   (("HMIN", "dog_hip_min", "0", "deg"),
+                                    ("HMAX", "dog_hip_max", "180", "deg"),
+                                    ("KMIN", "dog_knee_min", "10", "deg"),
+                                    ("KMAX", "dog_knee_max", "170", "deg"))),
+        ("center", "dog_center",   (("OFF", "dog_center", "0", "mm"),)),
+    )
+
     def _build_dog_tab(self):
-        """机器狗参数读写。目前只有「几何标定」一块, 后面按需再加。
+        """机器狗参数读写。每栏各自一组「读取 / 写入」, 读写都只作用于那一栏。
 
         为什么走 raw_exec 拼 MicroPython 而不是给 C 层加一个模块:
           这些参数在板子上本来就是 MicroPython 可调的函数, 板上那份带着
@@ -2735,79 +2785,54 @@ class App(tk.Tk):
                   foreground=C_TEXT).pack(fill="x", padx=px(PAD_S),
                                           pady=(px(PAD_S), px(PAD_XS)))
 
-        # 参数区: 一组一个 LabelFrame, 组内每个参数 = 「标签 (单位) + 输入框」
         self.dog_vars = {}
-        unit_mm = tr("dog_mm")
-        groups = (
-            (tr("dog_geo_leg"), (("L1", tr("dog_l1"), "40", unit_mm),
-                                 ("L2", tr("dog_l2"), "45", unit_mm))),
-            (tr("dog_geo_body"), (("BL", tr("dog_body_l"), "62.5", unit_mm),
-                                  ("BW", tr("dog_body_w"), "59", unit_mm))),
-            (tr("dog_limits"), (("HMIN", tr("dog_hip") + " min", "0", tr("dog_deg")),
-                                ("HMAX", tr("dog_hip") + " max", "180", tr("dog_deg")),
-                                ("KMIN", tr("dog_knee") + " min", "10", tr("dog_deg")),
-                                ("KMAX", tr("dog_knee") + " max", "170", tr("dog_deg")))),
-            (tr("dog_center"), (("OFF", tr("dog_center"), "0", unit_mm),)),
-        )
-        for title, fields in groups:
-            lf = ttk.Labelframe(p, text=title, padding=(px(PAD_S), px(PAD_XS)))
+        self.dog_btns = {}
+        for sec, title_key, fields in self.DOG_GROUPS:
+            lf = ttk.Labelframe(p, text=tr(title_key),
+                                padding=(px(PAD_S), px(PAD_XS)))
             lf.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_XS), 0))
             rowf = ttk.Frame(lf)
             rowf.pack(fill="x")
-            for key, label, init, unit in fields:
+
+            # ★ 按钮**先 pack** —— 反过来的话左边那排输入框会先把整行吃掉,
+            #   按钮分不到宽度就整个消失 (这台窗口上实测过, 页签条那边同款)。
+            btns = ttk.Frame(rowf)
+            btns.pack(side="right")
+            b_w = ttk.Button(btns, text=tr("dog_write"), width=6,
+                             style="AccentPage.TButton",
+                             command=lambda s=sec: self.on_dog_write(s))
+            b_w.pack(side="right")
+            b_r = ttk.Button(btns, text=tr("dog_read"), width=6,
+                             command=lambda s=sec: self.on_dog_read(s))
+            b_r.pack(side="right", padx=(0, px(PAD_XS)))
+            self.dog_btns[sec] = (b_r, b_w)
+
+            for key, label_key, init, unit in fields:
                 cell = ttk.Frame(rowf)
                 cell.pack(side="left", padx=(0, px(20)))
-                ttk.Label(cell, text="%s (%s)" % (label, unit)).pack(
+                ttk.Label(cell, text="%s (%s)" % (tr(label_key),
+                                                  tr("dog_" + unit))).pack(
                     side="left", padx=(0, px(PAD_XS)))
                 var = tk.StringVar(value=init)
                 self.dog_vars[key] = var
                 ttk.Entry(cell, textvariable=var, width=8).pack(side="left")
 
-        btns = ttk.Frame(p)
-        btns.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_L), px(PAD_XS)))
-        # 留引用: 没连板子时得置灰 (见 _sync_dog_ui)
-        self.btn_dog_read = ttk.Button(btns, text=tr("dog_read"),
-                                       command=self.on_dog_read)
-        self.btn_dog_read.pack(side="left")
-        self.btn_dog_write = ttk.Button(btns, text=tr("dog_write"),
-                                        style="AccentPage.TButton",
-                                        command=self.on_dog_write)
-        self.btn_dog_write.pack(side="left", padx=px(PAD_S))
-
-        ttk.Label(p, text=tr("dog_log")).pack(anchor="w", padx=px(PAD_S),
-                                              pady=(px(PAD_S), 0))
-        # 和烧写日志同一个观感 (Arduino 输出面板: 纯黑 + 白字 + 等宽)
-        self.txt_dog = tk.Text(p, height=8, wrap="word", bg=C_OUT_BG, fg=C_OUT_FG,
-                               insertbackground=C_OUT_FG,
-                               selectbackground=C_ACCENT_LT,
-                               relief="flat", font=FONT_MONO)
-        self.txt_dog.pack(fill="both", expand=True, padx=px(PAD_S),
-                          pady=(px(PAD_XS), px(PAD_S)))
         self._sync_dog_ui()
 
-    def _dog_log(self, text):
-        try:
-            self.txt_dog.insert("end", text.rstrip() + chr(10))
-            self.txt_dog.see("end")
-        except Exception:
-            pass
-
     def _sync_dog_ui(self):
-        """没连板子 / 板子不是 MicroPython -> 提示原因 + 读写按钮置灰。
+        """没连板子 / 板子不是 MicroPython -> 提示原因 + 所有读写按钮置灰。
 
         判据和文件管理**共用同一个** (连接时有没有拿到 >>>), 不另做探测 ——
         机器狗参数靠 bpuppy_motion 模块, 没有 MicroPython 就没有那个模块。
         """
         ok = bool(self.repl_ok) and self.sm.is_open
         state = "normal" if ok else "disabled"
-        for b in (getattr(self, "btn_dog_read", None),
-                  getattr(self, "btn_dog_write", None)):
-            if b is None:
-                continue
-            try:
-                b.configure(state=state)
-            except Exception:
-                pass
+        for pair in getattr(self, "dog_btns", {}).values():
+            for b in pair:
+                try:
+                    b.configure(state=state)
+                except Exception:
+                    pass
         try:
             if ok:
                 self.lbl_dog_hint.configure(text="")
@@ -2818,10 +2843,16 @@ class App(tk.Tk):
         except Exception:
             pass
 
-    def _dog_collect(self):
-        """把界面上的文本框读成 dict。空/非数字 -> None (调用方报错)。"""
+    @staticmethod
+    def _dog_warn_lines(raw):
+        """从板子的输出里挑出警告行。被拒的原因都在那儿 (形如 "⚠ 腿长非法! ...")。"""
+        lines = [ln.strip() for ln in (raw or "").splitlines() if "\u26a0" in ln]
+        return chr(10).join(lines).strip()
+
+    def _dog_collect(self, section):
+        """把该栏的输入框读成 dict。空/非数字 -> (None, 键, 原文)。"""
         vals = {}
-        for key in DOG_ALL_KEYS:
+        for key in DOG_SECTIONS[section]:
             raw = (self.dog_vars[key].get() or "").strip()
             try:
                 vals[key] = float(raw)
@@ -2829,7 +2860,7 @@ class App(tk.Tk):
                 return None, key, raw
         return vals, None, None
 
-    def on_dog_read(self):
+    def on_dog_read(self, section):
         if not self.need_conn():
             return
         if not self.repl_ok:
@@ -2838,20 +2869,24 @@ class App(tk.Tk):
         def work():
             self.post("status", text=tr("dog_reading"))
             try:
-                vals, raw = dog_read_params(self.sm)
-                self.post("dog_read", vals=vals, raw=raw)
+                vals, _raw = dog_read_params(self.sm, section)
+                if not vals:
+                    self.post("text_dialog", text=tr("dog_read_empty"))
+                    self.post("status", text=tr("dog_read_empty"))
+                    return
+                self.post("dog_read", vals=vals)
             except Exception as e:
-                self.post("dog_log", text="%s" % e)
+                self.post("msgbox_err", text="%s" % e)
                 self.post("status", text=tr("failed", msg=e))
 
         self.run_bg(work)
 
-    def on_dog_write(self):
+    def on_dog_write(self, section):
         if not self.need_conn():
             return
         if not self.repl_ok:
             return
-        vals, bad_key, bad_raw = self._dog_collect()
+        vals, bad_key, bad_raw = self._dog_collect(section)
         if vals is None:
             messagebox.showwarning(APP_NAME, tr("dog_bad_num", key=bad_key,
                                                 val=bad_raw))
@@ -2860,16 +2895,23 @@ class App(tk.Tk):
         def work():
             self.post("status", text=tr("dog_writing"))
             try:
-                raw = dog_write_params(self.sm, vals)
-                self.post("dog_log", text=raw)
-                # 板子拒了参数会打 "⚠" —— 有它就别报"成功", 否则等于骗人
-                if "\u26a0" in raw or "NOW " not in raw:
+                raw = dog_write_params(self.sm, vals, section)
+                # 板子拒了参数会打 "⚠" —— 有它就别报"成功", 否则等于骗人。
+                # 原因**必须弹出来**: 页面上去掉输出框之后, 只剩状态栏一句
+                # "部分被拒", 用户根本不知道是哪个值、为什么。
+                if "\u26a0" in raw:
                     self.post("status", text=tr("dog_write_partial"))
+                    self.post("text_dialog", title=tr("dog_reject_title"),
+                              text=tr("dog_reject_body",
+                                      msg=self._dog_warn_lines(raw)))
+                elif "NOW " not in raw:
+                    self.post("status", text=tr("dog_write_partial"))
+                    self.post("text_dialog", title=tr("dog_no_reply_title"),
+                              text=tr("dog_no_reply", msg=raw.strip()))
                 else:
                     self.post("status", text=tr("dog_write_ok"))
-                    self.post("dog_read", vals={}, raw="")
             except Exception as e:
-                self.post("dog_log", text="%s" % e)
+                self.post("msgbox_err", text="%s" % e)
                 self.post("status", text=tr("failed", msg=e))
 
         self.run_bg(work)
@@ -2955,6 +2997,63 @@ class App(tk.Tk):
         win.bind("<Escape>", lambda _e: win.destroy())
         win.focus_set()
 
+    def show_text_dialog(self, title, text):
+        """只读正文 + 「复制」按钮的提示框。
+
+        为什么不用 messagebox: 它塞不进自定义按钮, 而这里的正文是**板子报的
+        拒绝原因** (一长串数字和范围), 用户多半要贴给人看 —— 手抄必错。
+
+        正文用 Text 而不是 Label: Text 即使 state=disabled 也**能选中**,
+        用户想只抄半句也行; Label 做不到。
+        """
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.configure(bg=C_FIELD)
+        win.transient(self)
+        win.resizable(False, False)
+
+        body = tk.Text(win, wrap="word", width=62,
+                       height=max(3, min(12, text.count(chr(10)) + 3)),
+                       relief="flat", bg=C_WIDGET, fg=C_TEXT,
+                       padx=px(PAD_M), pady=px(PAD_S), font=FONT_MONO)
+        body.insert("1.0", text)
+        body.configure(state="disabled")        # 只读, 但能选中复制
+        body.pack(fill="both", expand=True, padx=px(PAD_M),
+                  pady=(px(PAD_M), px(PAD_S)))
+
+        row = tk.Frame(win, bg=C_FIELD)
+        row.pack(fill="x", padx=px(PAD_M), pady=(0, px(PAD_M)))
+
+        def do_copy():
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(text)
+                # ★ 必须 update —— 不跑一轮事件循环的话, 剪贴板内容会在窗口
+                #   销毁时跟着丢掉 (Tk 的剪贴板是"窗口持有"语义)。
+                self.update_idletasks()
+                note.configure(text=tr("copied"))
+            except Exception:
+                pass
+
+        ttk.Button(row, text=tr("copy"), command=do_copy).pack(side="left")
+        note = tk.Label(row, bg=C_FIELD, fg=C_OK, font=FONT_SMALL, text="")
+        note.pack(side="left", padx=(px(PAD_S), 0))
+        ttk.Button(row, text=tr("ok"), width=10, style="Plain.TButton",
+                   command=win.destroy).pack(side="right")
+
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.bind("<Control-c>", lambda _e: do_copy())
+        # 居中到主窗口 (略偏上, 免得挡住下面正在看的东西)
+        win.update_idletasks()
+        try:
+            wx = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+            wy = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
+            win.geometry("+%d+%d" % (max(0, wx), max(0, wy)))
+        except Exception:
+            pass
+        win.grab_set()
+        win.focus_set()
+
     def _sync_file_ui(self):
         """板子上没有 MicroPython 时, 把文件管理那几个按钮置灰。
 
@@ -3027,11 +3126,7 @@ class App(tk.Tk):
             self._after_disconnect()
         elif kind == "dog_read":
             self._fill_dog(kw.get("vals"))
-            if kw.get("raw"):
-                self._dog_log(kw["raw"])
             self.post("status", text=tr("dog_read_ok"))
-        elif kind == "dog_log":
-            self._dog_log(kw["text"])
         elif kind == "files_dev":
             self._fill_dev(kw["items"])
         elif kind == "files_local":
@@ -3042,6 +3137,9 @@ class App(tk.Tk):
             self._back_to_repl()
         elif kind == "msgbox":
             messagebox.showinfo(APP_NAME, kw["text"])
+        elif kind == "text_dialog":
+            # 带「复制」的提示框 —— 正文是板子的原始回显, 要能抄走
+            self.show_text_dialog(kw.get("title") or APP_NAME, kw["text"])
         elif kind == "msgbox_err":
             messagebox.showerror(APP_NAME, kw["text"])
 

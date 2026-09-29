@@ -180,6 +180,10 @@ C_ACCENT_T2 = "#B5E0E1"   # ↑掺白 50% 的淡版 —— **不是 Arduino 原�
 C_ACCENT_2  = "#1DA086"   # toolbar.dropdown.iconSelected
 C_SEL       = "#CCE6E6"   # list.activeSelectionBackground(#00818433) 的白底等效色 —— Tk 不支持透明度
 C_HILITE    = "#DAE3E3"   # menu.selectionBackground / 悬停底
+# 表格隔行底色 (**不是 Arduino 原值**) —— 它的 list 类界面靠悬停/选中区分, 没有
+# 斑马纹。但这儿的表格一行跨 800px, 不给条纹眼睛从「地址」扫到「大小」会串行。
+# 三档比过: #F7F9F9 太淡 (等于没做), #ECF1F1 跟表头同色 (打架), #F2F6F6 正好。
+C_ROW_ALT   = "#F2F6F6"
 # --- 语义 ---
 C_DANGER    = "#DF7365"   # errorForeground
 C_WARN      = "#F1C40F"   # toolbar.toggleBackground —— 借来当警告黄
@@ -3090,6 +3094,8 @@ class App(tk.Tk):
             self.tv_fw.insert("", "end", values=row)
         for row in st["dev_rows"]:
             self.tv_dev.insert("", "end", values=row)
+        self.stripe(self.tv_fw)
+        self.stripe(self.tv_dev)
 
         if st["repl"]:
             self.txt_term.insert("end", st["repl"])
@@ -4428,6 +4434,24 @@ class App(tk.Tk):
                 pass
         self.destroy()
 
+    @staticmethod
+    def stripe(tv):
+        """给一个列表打斑马纹 (隔行换底色), 并把 tag 配好。
+
+        为什么需要: ttk.Treeview **没有"格子线"这个元素** —— 主题里根本没做,
+          竖线尤其出不来。想让它看着像张表, 标准做法就是隔行换底色。
+          而且这儿的表格一行跨 800px, 眼睛从「地址」扫到「大小」很容易串行。
+
+        ⚠ 必须在**每次增删之后整体重刷**, 不能只在 insert 时按下标打 tag:
+          删掉一行之后, 后面所有行的序号都变了, 条纹会错位成"连着两行同色"。
+        """
+        try:
+            tv.tag_configure("odd", background=C_ROW_ALT)
+            for i, iid in enumerate(tv.get_children()):
+                tv.item(iid, tags=("odd",) if i % 2 else ())
+        except Exception:
+            pass
+
     def run_bg(self, fn, *a, **kw):
         """把耗时操作丢到后台线程, 异常统一报给 UI"""
         def wrap():
@@ -4855,6 +4879,7 @@ class App(tk.Tk):
         for name, size in items:
             self.tv_local.insert("", "end", values=(
                 name, "" if size is None else self.fmt_size(size)))
+        self.stripe(self.tv_local)
 
     def on_pick_dir(self):
         d = filedialog.askdirectory(initialdir=self.local_dir)
@@ -4900,6 +4925,7 @@ class App(tk.Tk):
         for name, size in items:
             self.tv_dev.insert("", "end", values=(
                 name, "" if size is None else self.fmt_size(size)))
+        self.stripe(self.tv_dev)
 
     def on_dev_open(self, _evt=None):
         sel = self.tv_dev.selection()
@@ -5061,13 +5087,16 @@ class App(tk.Tk):
             addr = guess_addr(p)
             self.tv_fw.insert("", "end", values=(
                 "0x%X" % addr, p, self.fmt_size(os.path.getsize(p))))
+        self.stripe(self.tv_fw)
 
     def on_del_fw(self):
         for i in self.tv_fw.selection():
             self.tv_fw.delete(i)
+        self.stripe(self.tv_fw)
 
     def on_clear_fw(self):
         self.tv_fw.delete(*self.tv_fw.get_children())
+        self.stripe(self.tv_fw)
 
     def on_edit_addr(self, _evt=None):
         sel = self.tv_fw.selection()

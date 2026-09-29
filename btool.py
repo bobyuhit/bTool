@@ -292,6 +292,13 @@ _ICONS = {
                 ("line", 0.90, 0.34, 0.90, 0.82),
                 ("line", 0.90, 0.82, 0.10, 0.82),
                 ("line", 0.10, 0.82, 0.10, 0.24)],
+    # 机器狗设置: 一个**爪印** (掌垫 + 四个趾) —— 说明"这一页是狗的事"。
+    #   试过齿轮, 28px 下画不出来 (见 _icon_hit 里 disc 那条注释)。
+    "ic_paw": [("disc", 0.24, 0.46, 0.76, 0.98),   # 掌垫
+               ("disc", 0.04, 0.22, 0.30, 0.48),   # 趾 x4, 沿弧线排开
+               ("disc", 0.26, 0.04, 0.52, 0.30),
+               ("disc", 0.50, 0.04, 0.76, 0.30),
+               ("disc", 0.72, 0.22, 0.98, 0.48)],
     # 芯片: 方框 + 四脚
     "ic_chip": [("rect", 0.26, 0.26, 0.74, 0.74),
                 ("line", 0.50, 0.10, 0.50, 0.26),
@@ -320,6 +327,24 @@ def _icon_hit(x, y, box, name, th):
         elif k == "box":
             if a <= x <= c and b <= y <= d:
                 return True
+        elif k == "disc":
+            # 实心圆 —— 和 circle 一样只取短边, 保证正圆。
+            # (2026-09-30 加: 想给"机器狗设置"画个齿轮, 但 28px 下圆只有 8px,
+            #  笔画相对粗细到 20%, 8 根齿糊成一团 —— 齿轮这个尺寸画不出来。
+            #  改用爪印: 5 个实心圆点, 形状简单, 缩小也不会糊。)
+            cxx, cyy = (a + c) / 2.0, (b + d) / 2.0
+            rad = min(c - a, d - b) / 2.0
+            if ((x - cxx) ** 2 + (y - cyy) ** 2) ** 0.5 <= rad:
+                return True
+        elif k == "circle":
+            # 圆环 (只描边)。半径取 box 的**短边**一半 —— 保证是正圆,
+            # 这样同一个图标放在方形或长方形的框里都不会被拉成椭圆。
+            cxx, cyy = (a + c) / 2.0, (b + d) / 2.0
+            rad = min(c - a, d - b) / 2.0 - th / 2.0
+            if rad > 0:
+                dist = ((x - cxx) ** 2 + (y - cyy) ** 2) ** 0.5
+                if abs(dist - rad) <= th / 2.0:
+                    return True
     return False
 
 
@@ -591,6 +616,34 @@ LANG = {
         "tab_flash": "  烧写  ",
         "tab_repl": "  REPL 终端  ",
         "tab_files": "  文件管理  ",
+        "tab_dog": "  机器狗设置  ",
+
+        # 机器狗设置页
+        "dog_need_conn": "先连接板子才能读写机器狗参数",
+        "dog_need_mppy": "板子上没跑 MicroPython, 读不到机器狗参数",
+        "dog_intro": ("这些参数写进板子的 NVS, 掉电不丢。改完点「写入板子」立刻生效。"
+                      "\n⚠ 前后髋距 / 左右髋宽填的是半距 / 半宽 —— 填全长会得到两倍大的机身。"),
+        "dog_geo_leg": "腿部几何",
+        "dog_l1": "大腿 L1",
+        "dog_l2": "小腿 L2",
+        "dog_geo_body": "机身尺寸",
+        "dog_body_l": "前后髋距 (半距)",
+        "dog_body_w": "左右髋宽 (半宽)",
+        "dog_limits": "关节限位",
+        "dog_hip": "髋角",
+        "dog_knee": "膝角",
+        "dog_center": "重心偏移",
+        "dog_mm": "mm",
+        "dog_deg": "度",
+        "dog_read": "读取当前值",
+        "dog_write": "写入板子",
+        "dog_reading": "正在读机器狗参数…",
+        "dog_writing": "正在写入机器狗参数…",
+        "dog_read_ok": "已读取, 各框已填上板子当前的值",
+        "dog_write_ok": "已写入板子 (NVS 已保存, 掉电不丢)",
+        "dog_write_partial": "部分参数被板子拒绝 —— 看下面的输出, 被拒的会保持原值",
+        "dog_log": "输出",
+        "dog_bad_num": "「%s」里的 %r 不是数字 —— 请填一个数 (如 40 或 62.5)",
 
         # 烧写页
         "add_fw": "添加固件…",
@@ -780,6 +833,36 @@ LANG = {
         "tab_flash": "  Flash  ",
         "tab_repl": "  REPL  ",
         "tab_files": "  Files  ",
+        "tab_dog": "  Robot Dog  ",
+
+        # Robot dog tab
+        "dog_need_conn": "Connect to the board first",
+        "dog_need_mppy": "No MicroPython on the board — cannot read dog params",
+        "dog_intro": ("These are written to the board's NVS and survive power-off. "
+                      "Click Write to apply."
+                      "\n⚠ Body length/width take HALF values — a full length "
+                      "gives you a body twice as big."),
+        "dog_geo_leg": "Leg geometry",
+        "dog_l1": "Thigh L1",
+        "dog_l2": "Shank L2",
+        "dog_geo_body": "Body size",
+        "dog_body_l": "Hip spacing (half)",
+        "dog_body_w": "Hip width (half)",
+        "dog_limits": "Joint limits",
+        "dog_hip": "Hip",
+        "dog_knee": "Knee",
+        "dog_center": "CoG offset",
+        "dog_mm": "mm",
+        "dog_deg": "deg",
+        "dog_read": "Read from board",
+        "dog_write": "Write to board",
+        "dog_reading": "Reading dog parameters…",
+        "dog_writing": "Writing dog parameters…",
+        "dog_read_ok": "Read back — fields now hold the board's values",
+        "dog_write_ok": "Written to the board (saved in NVS)",
+        "dog_write_partial": "Some values were rejected — see the output below",
+        "dog_log": "Output",
+        "dog_bad_num": "\u300c%s\u300d has %r, which is not a number — enter e.g. 40 or 62.5",
 
         "add_fw": "Add firmware…",
         "remove_sel": "Remove",
@@ -1532,6 +1615,84 @@ def dev_mkdir(sm, path):
 # 主界面 / main window
 # ======================================================================
 
+# ----------------------------------------------------------------------
+# 机器狗参数 / robot dog parameters
+# ----------------------------------------------------------------------
+# 这些**板子上本来就有** (bpuppy_motion 的 cal_ik / set_body_dims /
+# set_joint_limits / set_center), 那一份带着完整的校验和 NVS 持久化。
+# 工具侧只负责把数字拼成几行 MicroPython 发过去, **不重复实现校验** ——
+# 两边各写一份, 迟早会不同步, 而不同步的后果是"界面说改了、板子没改"。
+#
+# ⚠ get_geometry() 只回 4 个数 (L1, L2, 前后半距, 左右半宽)。髋/膝**限位
+#   不在返回元组里**, 板子上没有对应的 getter —— 只有 show_geometry() 会
+#   把它们打印出来。所以下面只能从打印文本里抠, 抠不到就保持原值不动,
+#   不让"读不全"变成"读失败"。
+
+DOG_GEO_KEYS = ("L1", "L2", "BL", "BW")
+DOG_ALL_KEYS = ("L1", "L2", "BL", "BW", "HMIN", "HMAX", "KMIN", "KMAX", "OFF")
+
+
+def dog_read_params(sm):
+    """读回机器狗几何参数。返回 (dict, 板子的原始输出)。
+
+    dict 里**只包含真的读到的那几项** —— 调用方按 key 判断哪些没读到,
+    别拿默认值去覆盖用户正在编辑的框。
+    """
+    out, err = sm.raw_exec(
+        "import bpuppy_motion as m" + chr(10) +
+        "g = m.get_geometry()" + chr(10) +
+        "print('GEO %.3f %.3f %.3f %.3f' % (g[0], g[1], g[2], g[3]))" + chr(10) +
+        "m.show_geometry()" + chr(10), timeout=6.0)
+    vals = {}
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("GEO "):
+            try:
+                got = [float(x) for x in line[4:].split()]
+            except ValueError:
+                continue
+            if len(got) == 4:
+                vals.update(zip(DOG_GEO_KEYS, got))
+    for pat, keys in ((r"Hip:\s*([0-9.]+)\s*~\s*([0-9.]+)", ("HMIN", "HMAX")),
+                      (r"Knee:\s*([0-9.]+)\s*~\s*([0-9.]+)", ("KMIN", "KMAX")),
+                      (r"Offset:\s*(-?[0-9.]+)", ("OFF",))):
+        m = re.search(pat, out or "")
+        if not m:
+            continue
+        for k, v in zip(keys, m.groups()):
+            try:
+                vals[k] = float(v)
+            except ValueError:
+                pass
+    return vals, (out or "") + (err or "")
+
+
+def dog_write_params(sm, vals):
+    """把参数写进板子 (NVS 持久化), 返回板子的原始输出。
+
+    **一次全写**, 不挑哪些改过 —— 板子上每个 setter 都是幂等的, 而"哪些改过"
+    要在界面上比对一遍, 多一处可能不同步的状态。被拒的参数板子会自己打印
+    原因 (形如 "⚠ 腿长非法! ..."), 那几行原样回给用户看, 不吞。
+    """
+    code = (
+        "import bpuppy_motion as m" + chr(10) +
+        "m.cal_ik(%.4f, %.4f)" + chr(10) +
+        "m.set_body_dims(%.4f, %.4f)" + chr(10) +
+        "m.set_joint_limits(%.4f, %.4f, %.4f, %.4f)" + chr(10) +
+        "print('CENTER', m.set_center(%.4f))" + chr(10) +
+        "g = m.get_geometry()" + chr(10) +
+        # ⚠ 末行整句都要**双写百分号** —— 它是发给**板子**的 print, 那四个 %.3f
+        #   在板子上求值 (g[0..3]), 不是本函数的格式占位符。少转义一个,
+        #   这里的 % 运算符就会抱怨"参数不够" —— 而且报的是 TypeError,
+        #   不看这行根本想不到问题出在一句"打印"上。
+        "print('NOW %%.3f %%.3f %%.3f %%.3f' %% (g[0], g[1], g[2], g[3]))" + chr(10)
+    ) % (vals["L1"], vals["L2"], vals["BL"], vals["BW"],
+         vals["HMIN"], vals["HMAX"], vals["KMIN"], vals["KMAX"], vals["OFF"])
+    out, err = sm.raw_exec(code, timeout=8.0)
+    return (out or "") + (err or "")
+
+
+
 class CircleButton(tk.Label):
     """圆形工具按钮 —— 照 Arduino 工具栏规格 (正圆 + 图标)。
 
@@ -1908,30 +2069,32 @@ class App(tk.Tk):
         self.cb_port.pack(side="left")
         self.cb_port.bind("<<ComboboxSelected>>", self._on_combo_port)
 
+        # 页面顺序: 烧写 / 文件 / REPL / 机器狗设置 —— 按"用得多少"排。
+        # 烧写最常用放第一; REPL 排在文件后面, 因为终端是兜底手段, 不是主线。
         self.tab_flash = ttk.Frame(wa.body)
-        self.tab_repl = ttk.Frame(wa.body)
         self.tab_files = ttk.Frame(wa.body)
+        self.tab_repl = ttk.Frame(wa.body)
+        self.tab_dog = ttk.Frame(wa.body)
         wa.add(self.tab_flash, text=tr("tab_flash"), icon="ic_flash")
-        wa.add(self.tab_repl, text=tr("tab_repl"), icon="ic_term")
         wa.add(self.tab_files, text=tr("tab_files"), icon="ic_file")
+        wa.add(self.tab_repl, text=tr("tab_repl"), icon="ic_term")
+        wa.add(self.tab_dog, text=tr("tab_dog"), icon="ic_paw")
 
         self._build_flash_tab()
+        self._build_files_tab()
         self._build_repl_tab()
-        self._build_files_tab()        # ---- 状态栏 / status bar ----
-        # 「关于」放这儿: 连接栏那一排已经很挤了, 而关于是偶尔点一次的东西。
-        # 先 pack 按钮再 pack 状态文字 —— 否则文字会把整行占满, 按钮被挤没。
-        # ★ 状态栏用 Arduino 的 statusBar 配色: **深 teal 底 + 浅字** —— 这是它
-        #   最好认的特征之一, 也把"窗口到此结束"这条界线画清楚了 (原来只有一条
-        #   1px 灰线, 和内容区分不开)。
+        self._build_dog_tab()
+
+        # ---- 状态栏 / status bar ----
+        # ★ 用 Arduino 的 statusBar 配色: **深 teal 底 + 浅字** —— 这是它最好认的
+        #   特征之一, 也把"窗口到此结束"这条界线画清楚了 (原来只有一条 1px 灰线,
+        #   和内容区分不开)。
+        # 这一栏**不放按钮**: 「关于」在「帮助」菜单里, 状态栏只负责显示状态。
         self.var_status = tk.StringVar(value=tr("ready"))
         bar = ttk.Frame(self, style="Status.TFrame")
         bar.pack(fill="x", side="bottom")
         row = ttk.Frame(bar, style="Status.TFrame")
         row.pack(fill="x")
-        ttk.Button(row, text=tr("about"), width=7, style="Status.TButton",
-                   command=self.on_about).pack(side="right",
-                                               padx=(px(PAD_XS), px(PAD_S)),
-                                               pady=px(PAD_XS))
         # 串口选择挪进菜单之后, 必须有个地方**常驻**显示"现在对着哪个口" ——
         # 否则就得开菜单才知道, 那就退化成了"藏起来的设置"。
         # ★ 连接状态指示: 带颜色的圆点 + 粗体。
@@ -1988,59 +2151,39 @@ class App(tk.Tk):
                      font=FONT_UI)
 
         # ---- 输入类: 也做圆角 ----
-        # 必须跟按钮**成套**: 一半圆角一半直角, 比全直角更乱。
-        # 做法是把 field 元素换成九宫格图 (Entry.field / Combobox.field), 内部
-        # 的 padding/textarea 结构照旧 —— 所以输入、选中、只读这些行为都不受影响。
-        # ⚠ 下拉箭头**不能**画进九宫格图里 —— ttk 的 image element 对中间那格是
-        #   **平铺(tile)** 而不是拉伸, 箭头会沿控件高度重复好几遍 (实测: 一个下拉框
-        #   里叠了三个 ∨)。中间格只有是纯色时, tile 与 stretch 才看不出区别 ——
-        #   这也是圆角按钮一直正常的原因。
-        #   箭头仍交给 Combobox.downarrow 元素, 且必须排在有 -side 的位置上。
-        for sty, text_el, tail in (("TEntry", "Entry.textarea", ()),
-                                   ("TCombobox", "Combobox.textarea",
-                                    (("Combobox.downarrow",
-                                      {"side": "right", "sticky": "ns"}),))):
-            install_round_field(st, sty, R4, C_FIELD, {
-                "":         (C_FIELD,  C_BORDER),
-                "focus":    (C_FIELD,  C_ACCENT_LT),
-                "disabled": (C_CHROME, C_BORDER),
-            }, text_el, tail)
+        # ---- 输入类: **方角**扁平框 ----
+        # 用户反馈"强行圆角看着有点怪" —— 输入框改回方角。
+        # 做法: **不建**圆角九宫格图元素 (install_round_field), 直接用 clam 自带的
+        # Entry.field / Combobox.field, 只把颜色和立体感改掉。
+        # ⚠ 每个样式各自持有自己的 field 元素 (元素名 = "Rnd" + 样式名 + "Field"),
+        #   所以"只让串口框变方、别的保持圆角"技术上做得到 —— 但一个方一个圆
+        #   看着像手误, 所以三个输入框一起改。
+        # ⚠ clam 的 field 元素默认带 3D 斜面 (relief=sunken + 一深一浅两条边),
+        #   不压平的话方框会像个 Windows 98 的凹槽。
+        # ⚠ 别显式设 arrowsize —— clam 的 downarrow 元素被垂直拉伸时会**平铺**
+        #   箭头图案, 显式给小尺寸会叠出好几个 ∨ (实测 3 个)。
+        for sty in ("TEntry", "TCombobox", "Strip.TCombobox"):
             st.configure(sty, fieldbackground=C_FIELD, background=C_FIELD,
                          foreground=C_TEXT, bordercolor=C_BORDER,
                          lightcolor=C_BORDER, darkcolor=C_BORDER,
+                         relief="solid", borderwidth=1, arrowcolor=C_TEXT,
                          padding=(px(PAD_S), px(PAD_XS)))
-        # ⚠ 别显式设 arrowsize —— clam 的 downarrow 元素被垂直拉伸时会**平铺**
-        #   箭头图案, 显式给小尺寸会叠出好几个 ∨ (实测 3 个)。留空让它用元素
-        #   自己的自然尺寸, 正好填满高度, 就只有一个。
-        # 下拉箭头那块的底色调成和 field 一样 (白), 否则右边会挂个灰方块,
-        # 把圆角右边缘咬掉一块
         st.configure("TCombobox", selectbackground=C_SEL)
+        st.map("TEntry",
+               fieldbackground=[("disabled", C_CHROME)],
+               foreground=[("disabled", C_MUTED)])
         st.map("TCombobox",
                fieldbackground=[("readonly", C_FIELD), ("disabled", C_CHROME)],
                foreground=[("disabled", C_MUTED)],
                arrowcolor=[("active", C_ACCENT)])
-        st.map("TEntry", foreground=[("disabled", C_MUTED)])
-        # ⚠ clam 给下拉箭头那一格写死了底色 #dcdad5 / 边框 #9e9a91, 而且 arrowcolor
-        #   是**空的** —— 白底输入框右边于是挂着个灰方块 + 一团黑三角, 像没画完。
-        #   这三行把它拉回和 field 一致 (实测 st.lookup 确认过原值)。
-        st.configure("Combobox.downarrow", background=C_FIELD, arrowcolor=C_TEXT,
-                     bordercolor=C_FIELD, lightcolor=C_FIELD, darkcolor=C_FIELD)
-
-        # 页签条上的串口框 —— 同一套圆角图, 只是 **outside 换成条带色**,
-        # 否则四角会露出白色方块 (outside 是烤进图里的, 容器色必须匹配)。
-        install_round_field(st, "Strip.TCombobox", R4, C_TOPBAR, {
-            "":         (C_FIELD,  C_BORDER),
-            "focus":    (C_FIELD,  C_ACCENT_LT),
-            "disabled": (C_WIDGET, C_BORDER),
-        }, "Combobox.textarea",
-            (("Combobox.downarrow", {"side": "right", "sticky": "ns"}),))
-        st.configure("Strip.TCombobox", fieldbackground=C_FIELD,
-                     background=C_FIELD, foreground=C_TEXT,
-                     bordercolor=C_BORDER, lightcolor=C_BORDER,
-                     darkcolor=C_BORDER, padding=(px(PAD_S), px(PAD_XS)))
         st.map("Strip.TCombobox",
                fieldbackground=[("readonly", C_FIELD), ("disabled", C_WIDGET)],
                foreground=[("disabled", C_MUTED)])
+        # ⚠ clam 给下拉箭头那一格写死了底色 #dcdad5 / 边框 #9e9a91, 而且 arrowcolor
+        #   是**空的** —— 白底输入框右边于是挂着个灰方块 + 一团黑三角, 像没画完。
+        #   这行把它拉回和 field 一致 (上面的 st.lookup 确认过原值)。
+        st.configure("Combobox.downarrow", background=C_FIELD, arrowcolor=C_TEXT,
+                     bordercolor=C_FIELD, lightcolor=C_FIELD, darkcolor=C_FIELD)
 
         # ---- 列表: 行高与字号 (默认 rowheight 配 9pt 中文偏挤) ----
         st.configure("Treeview", rowheight=px(24), font=FONT_UI,
@@ -2574,6 +2717,169 @@ class App(tk.Tk):
         if self.busy:
             self.set_busy(True)
 
+    # ---- 机器狗设置页 / robot dog tab ----
+    def _build_dog_tab(self):
+        """机器狗参数读写。目前只有「几何标定」一块, 后面按需再加。
+
+        为什么走 raw_exec 拼 MicroPython 而不是给 C 层加一个模块:
+          这些参数在板子上本来就是 MicroPython 可调的函数, 板上那份带着
+          完整校验和 NVS 持久化。工具侧再实现一遍只会多一个可能不同步的
+          地方 —— 而"界面说改了、板子没改"是最难查的一类 bug。
+        """
+        p = self.tab_dog
+        # 没连板子 / 板子没跑 MicroPython 时的提示 (正常时是空的)
+        self.lbl_dog_hint = ttk.Label(p, foreground=C_WARN, justify="left")
+        self.lbl_dog_hint.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_S), 0))
+
+        ttk.Label(p, text=tr("dog_intro"), justify="left",
+                  foreground=C_TEXT).pack(fill="x", padx=px(PAD_S),
+                                          pady=(px(PAD_S), px(PAD_XS)))
+
+        # 参数区: 一组一个 LabelFrame, 组内每个参数 = 「标签 (单位) + 输入框」
+        self.dog_vars = {}
+        unit_mm = tr("dog_mm")
+        groups = (
+            (tr("dog_geo_leg"), (("L1", tr("dog_l1"), "40", unit_mm),
+                                 ("L2", tr("dog_l2"), "45", unit_mm))),
+            (tr("dog_geo_body"), (("BL", tr("dog_body_l"), "62.5", unit_mm),
+                                  ("BW", tr("dog_body_w"), "59", unit_mm))),
+            (tr("dog_limits"), (("HMIN", tr("dog_hip") + " min", "0", tr("dog_deg")),
+                                ("HMAX", tr("dog_hip") + " max", "180", tr("dog_deg")),
+                                ("KMIN", tr("dog_knee") + " min", "10", tr("dog_deg")),
+                                ("KMAX", tr("dog_knee") + " max", "170", tr("dog_deg")))),
+            (tr("dog_center"), (("OFF", tr("dog_center"), "0", unit_mm),)),
+        )
+        for title, fields in groups:
+            lf = ttk.Labelframe(p, text=title, padding=(px(PAD_S), px(PAD_XS)))
+            lf.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_XS), 0))
+            rowf = ttk.Frame(lf)
+            rowf.pack(fill="x")
+            for key, label, init, unit in fields:
+                cell = ttk.Frame(rowf)
+                cell.pack(side="left", padx=(0, px(20)))
+                ttk.Label(cell, text="%s (%s)" % (label, unit)).pack(
+                    side="left", padx=(0, px(PAD_XS)))
+                var = tk.StringVar(value=init)
+                self.dog_vars[key] = var
+                ttk.Entry(cell, textvariable=var, width=8).pack(side="left")
+
+        btns = ttk.Frame(p)
+        btns.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_L), px(PAD_XS)))
+        # 留引用: 没连板子时得置灰 (见 _sync_dog_ui)
+        self.btn_dog_read = ttk.Button(btns, text=tr("dog_read"),
+                                       command=self.on_dog_read)
+        self.btn_dog_read.pack(side="left")
+        self.btn_dog_write = ttk.Button(btns, text=tr("dog_write"),
+                                        style="AccentPage.TButton",
+                                        command=self.on_dog_write)
+        self.btn_dog_write.pack(side="left", padx=px(PAD_S))
+
+        ttk.Label(p, text=tr("dog_log")).pack(anchor="w", padx=px(PAD_S),
+                                              pady=(px(PAD_S), 0))
+        # 和烧写日志同一个观感 (Arduino 输出面板: 纯黑 + 白字 + 等宽)
+        self.txt_dog = tk.Text(p, height=8, wrap="word", bg=C_OUT_BG, fg=C_OUT_FG,
+                               insertbackground=C_OUT_FG,
+                               selectbackground=C_ACCENT_LT,
+                               relief="flat", font=FONT_MONO)
+        self.txt_dog.pack(fill="both", expand=True, padx=px(PAD_S),
+                          pady=(px(PAD_XS), px(PAD_S)))
+        self._sync_dog_ui()
+
+    def _dog_log(self, text):
+        try:
+            self.txt_dog.insert("end", text.rstrip() + chr(10))
+            self.txt_dog.see("end")
+        except Exception:
+            pass
+
+    def _sync_dog_ui(self):
+        """没连板子 / 板子不是 MicroPython -> 提示原因 + 读写按钮置灰。
+
+        判据和文件管理**共用同一个** (连接时有没有拿到 >>>), 不另做探测 ——
+        机器狗参数靠 bpuppy_motion 模块, 没有 MicroPython 就没有那个模块。
+        """
+        ok = bool(self.repl_ok) and self.sm.is_open
+        state = "normal" if ok else "disabled"
+        for b in (getattr(self, "btn_dog_read", None),
+                  getattr(self, "btn_dog_write", None)):
+            if b is None:
+                continue
+            try:
+                b.configure(state=state)
+            except Exception:
+                pass
+        try:
+            if ok:
+                self.lbl_dog_hint.configure(text="")
+            elif self.sm.is_open:
+                self.lbl_dog_hint.configure(text=tr("dog_need_mppy"))
+            else:
+                self.lbl_dog_hint.configure(text=tr("dog_need_conn"))
+        except Exception:
+            pass
+
+    def _dog_collect(self):
+        """把界面上的文本框读成 dict。空/非数字 -> None (调用方报错)。"""
+        vals = {}
+        for key in DOG_ALL_KEYS:
+            raw = (self.dog_vars[key].get() or "").strip()
+            try:
+                vals[key] = float(raw)
+            except ValueError:
+                return None, key, raw
+        return vals, None, None
+
+    def on_dog_read(self):
+        if not self.need_conn():
+            return
+        if not self.repl_ok:
+            return
+
+        def work():
+            self.post("status", text=tr("dog_reading"))
+            try:
+                vals, raw = dog_read_params(self.sm)
+                self.post("dog_read", vals=vals, raw=raw)
+            except Exception as e:
+                self.post("dog_log", text="%s" % e)
+                self.post("status", text=tr("failed", msg=e))
+
+        self.run_bg(work)
+
+    def on_dog_write(self):
+        if not self.need_conn():
+            return
+        if not self.repl_ok:
+            return
+        vals, bad_key, bad_raw = self._dog_collect()
+        if vals is None:
+            messagebox.showwarning(APP_NAME, tr("dog_bad_num", key=bad_key,
+                                                val=bad_raw))
+            return
+
+        def work():
+            self.post("status", text=tr("dog_writing"))
+            try:
+                raw = dog_write_params(self.sm, vals)
+                self.post("dog_log", text=raw)
+                # 板子拒了参数会打 "⚠" —— 有它就别报"成功", 否则等于骗人
+                if "\u26a0" in raw or "NOW " not in raw:
+                    self.post("status", text=tr("dog_write_partial"))
+                else:
+                    self.post("status", text=tr("dog_write_ok"))
+                    self.post("dog_read", vals={}, raw="")
+            except Exception as e:
+                self.post("dog_log", text="%s" % e)
+                self.post("status", text=tr("failed", msg=e))
+
+        self.run_bg(work)
+
+    def _fill_dog(self, vals):
+        """把读回来的值填进输入框。**只填读到的**, 没读到的保持用户原样。"""
+        for key, v in (vals or {}).items():
+            if key in self.dog_vars:
+                self.dog_vars[key].set(("%.1f" % v).rstrip("0").rstrip("."))
+
     # ------------------------------------------------------------------
     # 线程 → UI 消息泵 / worker thread → UI pump
     # ------------------------------------------------------------------
@@ -2696,6 +3002,7 @@ class App(tk.Tk):
         elif kind == "repl_ok":
             self.repl_ok = bool(kw["ok"])
             self._sync_file_ui()
+            self._sync_dog_ui()
         elif kind == "chip_name":
             # ROM 认出来的芯片型号 → 填最上面那个只读显示
             self.detected_chip = kw["name"]
@@ -2718,6 +3025,13 @@ class App(tk.Tk):
             self._after_connect()
         elif kind == "disconnected":
             self._after_disconnect()
+        elif kind == "dog_read":
+            self._fill_dog(kw.get("vals"))
+            if kw.get("raw"):
+                self._dog_log(kw["raw"])
+            self.post("status", text=tr("dog_read_ok"))
+        elif kind == "dog_log":
+            self._dog_log(kw["text"])
         elif kind == "files_dev":
             self._fill_dev(kw["items"])
         elif kind == "files_local":
@@ -3383,6 +3697,7 @@ class App(tk.Tk):
         self.tv_dev.delete(*self.tv_dev.get_children())
         self._sync_mode_ui()               # 没连接 → 「切回 REPL」置灰
         self._sync_file_ui()               # 没连接 → 文件管理置灰
+        self._sync_dog_ui()                # 机器狗设置同理
 
     # ------------------------------------------------------------------
     # REPL

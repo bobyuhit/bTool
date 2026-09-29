@@ -292,13 +292,16 @@ _ICONS = {
                 ("line", 0.90, 0.34, 0.90, 0.82),
                 ("line", 0.90, 0.82, 0.10, 0.82),
                 ("line", 0.10, 0.82, 0.10, 0.24)],
-    # 机器狗设置: 一个**爪印** (掌垫 + 四个趾) —— 说明"这一页是狗的事"。
-    #   试过齿轮, 28px 下画不出来 (见 _icon_hit 里 disc 那条注释)。
-    "ic_paw": [("disc", 0.24, 0.46, 0.76, 0.98),   # 掌垫
-               ("disc", 0.04, 0.22, 0.30, 0.48),   # 趾 x4, 沿弧线排开
-               ("disc", 0.26, 0.04, 0.52, 0.30),
-               ("disc", 0.50, 0.04, 0.76, 0.30),
-               ("disc", 0.72, 0.22, 0.98, 0.48)],
+    # 机器狗设置: 一个**狗头**。
+    #   试过齿轮 (28px 下画不出来, 见 _icon_hit 里 disc 那条注释), 也试过
+    #   耳朵朝上的圆头 —— 那个在 28px 下不是像熊就是像兔。**真正让狗一眼是狗的
+    #   是那对垂耳**, 而垂耳必须画成长条, 所以为此加了 oval (实心椭圆) 图元。
+    "ic_dog": [("oval", 0.02, 0.10, 0.28, 0.70),    # 左垂耳
+               ("oval", 0.72, 0.10, 0.98, 0.70),    # 右垂耳
+               ("circle", 0.22, 0.18, 0.78, 0.74),  # 头
+               ("disc", 0.34, 0.36, 0.45, 0.47),    # 左眼
+               ("disc", 0.55, 0.36, 0.66, 0.47),    # 右眼
+               ("oval", 0.42, 0.54, 0.58, 0.72)],   # 吻部
     # 芯片: 方框 + 四脚
     "ic_chip": [("rect", 0.26, 0.26, 0.74, 0.74),
                 ("line", 0.50, 0.10, 0.50, 0.26),
@@ -336,6 +339,15 @@ def _icon_hit(x, y, box, name, th):
             rad = min(c - a, d - b) / 2.0
             if ((x - cxx) ** 2 + (y - cyy) ** 2) ** 0.5 <= rad:
                 return True
+        elif k == "oval":
+            # 实心椭圆 —— disc 是正圆 (只取短边), 画不出"垂耳"这种长条形状。
+            # (2026-09-30 加: 狗头图标光靠正圆拼, 耳朵不是大了像熊就是尖了像兔,
+            #  真正让狗一眼是狗的**垂耳**必须是长条。)
+            cx2, cy2 = (a + c) / 2.0, (b + d) / 2.0
+            rx2, ry2 = (c - a) / 2.0, (d - b) / 2.0
+            if rx2 > 0 and ry2 > 0:
+                if ((x - cx2) / rx2) ** 2 + ((y - cy2) / ry2) ** 2 <= 1.0:
+                    return True
         elif k == "circle":
             # 圆环 (只描边)。半径取 box 的**短边**一半 —— 保证是正圆,
             # 这样同一个图标放在方形或长方形的框里都不会被拉成椭圆。
@@ -537,6 +549,41 @@ def install_round_button(st, style, radius, outside, faces, pad, fg, font=None):
     ])
     st.configure(style, padding=pad, foreground=fg, borderwidth=0,
                  relief="flat", font=font or FONT_UI)
+
+
+def install_check_indicator(st, style, outside, size=None):
+    """把复选框的指示器换成"方框 + 对勾"。
+
+    ⚠ clam 的**选中态画的是一道粗 X** —— 看着像"打叉 / 未选", 而它其实是选中。
+      它只能改颜色 (indicatorcolor / foreground), 形状改不了, 所以整个指示器
+      换成自己画的图: 没选 = 白底方框; 选中 = 主色实底 + 白对勾。
+      (实测: 打勾的那个框在 15px 下渲染出来就是个 ✕, 两个人看到都以为没勾上。)
+    """
+    el = "Chk" + style.replace(".", "_")
+    if el not in _STYLED:
+        n = size or px(15)
+        imgs = []
+        for state, fill, edge, tick in (
+                ("",           C_FIELD,   C_BORDER_2, None),      # 没选: 白底方框
+                ("selected",   C_ACCENT,  C_ACCENT,   C_FIELD)):  # 选中: 实底白勾
+            mark = ("check", tick, int(n * 0.14)) if tick else None
+            im = tk.PhotoImage(data=_rr_ppm(n, n, px(3),
+                                            _rgb(fill), _rgb(edge),
+                                            _rgb(outside), mark=mark))
+            _ROUND_IMGS.append(im)             # ★ 留引用, 否则 GC 后是黑块
+            imgs.append(im if state == "" else (state, im))
+        st.element_create(el, "image", *imgs, border=0, sticky="")
+        _STYLED.add(el)
+    # 布局照抄 clam 的 Checkbutton, 只把指示器那个元素换掉
+    st.layout(style, [
+        ("Checkbutton.padding", {"sticky": "nswe", "children": [
+            (el, {"side": "left", "sticky": ""}),
+            ("Checkbutton.focus", {"side": "left", "sticky": "w", "children": [
+                ("Checkbutton.label", {"sticky": "nswe"}),
+            ]}),
+        ]}),
+    ])
+    st.configure(style, padding=(0, px(2)))
 
 
 def install_round_field(st, style, radius, outside, faces, text_el,
@@ -768,6 +815,10 @@ LANG = {
         "new_name": "新名称:",
         "ok": "确定",
         "copy": "复制",
+        "autoscroll": "自动滚屏",
+        "autoreconnect": "自动重连",
+        "link_lost": "连接已断开 (设备被拔出或复位)",
+        "reconnecting": "正在自动重连 %s …",
         "copied": "已复制",
 
         "no_esptool": "缺少 esptool:  pip install esptool",
@@ -1000,6 +1051,10 @@ LANG = {
         "new_name": "New name:",
         "ok": "OK",
         "copy": "Copy",
+        "autoscroll": "Auto-scroll",
+        "autoreconnect": "Auto-reconnect",
+        "link_lost": "Connection lost (device unplugged or reset)",
+        "reconnecting": "Reconnecting to %s …",
         "copied": "Copied",
 
         "no_esptool": "esptool missing:  pip install esptool",
@@ -1404,8 +1459,15 @@ class SerialManager:
         with self.lock:
             if not self.is_open:
                 return b""
-            n = self._ser.in_waiting
-            return self._ser.read(n) if n else b""
+            try:
+                n = self._ser.in_waiting
+                return self._ser.read(n) if n else b""
+            except Exception:
+                # ★ 设备被拔掉时 pyserial **不会**自动把 is_open 置 False, 只是
+                #   开始抛异常。不在这儿主动关掉的话: 界面一直显示"已连接"而
+                #   实际早死了, 而且"自动重连"永远等不到 is_open 变 False。
+                self.close()
+                raise SerialError("device lost / 设备已断开")
 
     def read_until(self, want, timeout=3.0, echo_sink=None):
         """读到出现 want (bytes) 为止。"""
@@ -2011,6 +2073,9 @@ class App(tk.Tk):
         self.msgq = queue.Queue()          # 工作线程 → UI
         self.busy = False
         self._reader_on = False            # 终端读取线程开关
+        self._was_linked = False           # 上一轮读循环时串口是不是开着的 (掉线去重用)
+        self._want_port = None             # 用户上次连上的口; 自动重连认它, 主动断开清它
+        self._last_conn_try = 0.0          # 上次尝试连的时刻 (自动重连的冷却用)
         self._drain_id = None              # UI 消息泵的定时器 id (关窗时要取消)
         self._port_timer = None            # 串口轮询的定时器 id
 
@@ -2115,7 +2180,7 @@ class App(tk.Tk):
         wa.add(self.tab_flash, text=tr("tab_flash"), icon="ic_flash")
         wa.add(self.tab_files, text=tr("tab_files"), icon="ic_file")
         wa.add(self.tab_repl, text=tr("tab_repl"), icon="ic_term")
-        wa.add(self.tab_dog, text=tr("tab_dog"), icon="ic_paw")
+        wa.add(self.tab_dog, text=tr("tab_dog"), icon="ic_dog")
 
         self._build_flash_tab()
         self._build_files_tab()
@@ -2169,6 +2234,7 @@ class App(tk.Tk):
                      font=FONT_UI)
         st.configure("TCheckbutton", background=C_FIELD, foreground=C_TEXT, font=FONT_UI)
         st.map("TCheckbutton", background=[("active", C_FIELD)])
+        install_check_indicator(st, "TCheckbutton", C_FIELD)
         st.configure("TSeparator", background=C_BORDER)
 
         # 窗口"框"那一层: 顶部连接栏 / 页签条 —— Arduino 的 #ECF1F1
@@ -2182,6 +2248,7 @@ class App(tk.Tk):
         st.configure("Chrome.TCheckbutton", background=C_CHROME, foreground=C_TEXT,
                      font=FONT_UI)
         st.map("Chrome.TCheckbutton", background=[("active", C_CHROME)])
+        install_check_indicator(st, "Chrome.TCheckbutton", C_CHROME)
         # 状态栏: Arduino 的 statusBar 是**深 teal + 浅字** —— 它最好认的特征之一
         st.configure("Status.TFrame", background=C_BAR)
         st.configure("Status.TLabel", background=C_BAR, foreground=C_FIELD,
@@ -2504,6 +2571,16 @@ class App(tk.Tk):
         row = ttk.Frame(p)
         row.pack(fill="x", padx=px(8), pady=(px(6), px(8)))
         ttk.Label(row, text=tr("term_hint"), foreground=C_MUTED).pack(side="left")
+        # 两个开关跟在提示后面 (右边那三个按钮保持原样, 不动)
+        self.var_autoscroll = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row, text=tr("autoscroll"),
+                        variable=self.var_autoscroll,
+                        command=self._on_autoscroll).pack(side="left",
+                                                          padx=(px(16), 0))
+        self.var_autoreconnect = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row, text=tr("autoreconnect"),
+                        variable=self.var_autoreconnect).pack(side="left",
+                                                              padx=(px(12), 0))
         # ★ 只做"切回普通 REPL"这**一个方向** —— 没有"手动进 raw"。
         #   raw 是文件操作用的**程序化**模式: 工具自己切进去、做完自己切出来,
         #   人没有理由主动进去 (键盘输入在里面本来就无效)。
@@ -3124,6 +3201,8 @@ class App(tk.Tk):
             self._after_connect()
         elif kind == "disconnected":
             self._after_disconnect()
+        elif kind == "lost":
+            self._on_link_lost()
         elif kind == "dog_read":
             self._fill_dog(kw.get("vals"))
             self.post("status", text=tr("dog_read_ok"))
@@ -3471,7 +3550,10 @@ class App(tk.Tk):
         # (insert mark 是 Tk 标记, 删头部若干行时会自动跟着上移, 不用重算)
         if int(t.index("insert").split(".")[0]) > 2000:
             t.delete("1.0", "500.0")
-        t.see("insert")
+        # ★ 滚屏受开关控制: 关掉之后输出照收, 但视图不动 —— 这样才能安心
+        #   往上翻着看历史, 不会被每秒钟好几屏的新输出顶回去。
+        if self.var_autoscroll.get():
+            t.see("insert")
 
     def log_repl(self, text, raw=False):
         """应用侧的消息 (状态/文件操作结果) —— 也写进终端, 换行结尾"""
@@ -3479,6 +3561,14 @@ class App(tk.Tk):
             self.term_write(text)
         else:
             self.term_write(text + "\n")
+
+    def _on_autoscroll(self):
+        """刚勾上就立刻跳到最新 —— 否则要等下一条输出才动, 看着像没生效"""
+        if self.var_autoscroll.get():
+            try:
+                self.txt_term.see("insert")
+            except Exception:
+                pass
 
     def clear_repl(self):
         self.txt_term.delete("1.0", "end")     # insert mark 会被 Tk 拉到 1.0
@@ -3542,6 +3632,10 @@ class App(tk.Tk):
         c = self.cfg
         if c.get("flash_baud"):
             self.cb_fbaud.set(c["flash_baud"])
+        if "autoscroll" in c:
+            self.var_autoscroll.set(bool(c["autoscroll"]))
+        if "autoreconnect" in c:
+            self.var_autoreconnect.set(bool(c["autoreconnect"]))
 
     def _save_cfg(self):
         """把用户偏好写盘。存不成也不报错 —— 不该因为记偏好把程序搞崩。"""
@@ -3551,6 +3645,8 @@ class App(tk.Tk):
             "local_dir": self.local_dir,
             "port": self._port_name(),
             "flash_baud": self.cb_fbaud.get(),
+            "autoscroll": bool(self.var_autoscroll.get()),
+            "autoreconnect": bool(self.var_autoreconnect.get()),
         })
 
     def on_close(self):
@@ -3698,15 +3794,49 @@ class App(tk.Tk):
         self.var_status.set(tr("ports_found", n=len(ports)))
 
     def _auto_ports(self):
-        """定时轮询: 只更新列表和选中项, **不动状态栏**"""
+        """定时轮询: 更新列表和选中项 (**不动状态栏**) + 顺手看要不要自动重连"""
+        ports = []
         try:
-            self._apply_ports(self._scan_ports())
+            ports = self._scan_ports()
+            self._apply_ports(ports)
         except Exception:
             pass                                   # 窗口正在销毁等, 忽略
+        try:
+            self._maybe_reconnect(ports)
+        except Exception:
+            pass
         try:
             self._port_timer = self.after(self.PORT_POLL_MS, self._auto_ports)
         except Exception:
             pass
+
+    def _maybe_reconnect(self, ports):
+        """掉线后自动重连。
+
+        四个条件全要满足, 缺一不可:
+          · 开关打开
+          · 有"用户上次连过的口" (_want_port)。**用户点过「断开」就会清掉它** ——
+            所以手动断开绝不会被这里抢着连回去。
+          · 当前确实没连着, 而且不忙 (烧写期间串口是主动让出去的)
+          · 那个口重新出现在系统里了
+
+        再加一道 3 秒冷却: 口在、但打不开 (被别的程序占着) 的时候,
+        不至于每 1.5 秒的轮询都撞一次、连抛一串错。
+        """
+        if not self.var_autoreconnect.get():
+            return
+        want = self._want_port
+        if not want or self.sm.is_open or self.busy:
+            return
+        if time.time() - self._last_conn_try < 3.0:
+            return
+        if want not in ports:
+            return
+        self._last_conn_try = time.time()
+        self.var_port.set(want)        # on_connect 读的是控件里的值
+        self._rebuild_port_menu()
+        self.var_status.set(tr("reconnecting", port=want))
+        self.on_connect()
 
     def _port_name(self):
         raw = (self.var_port.get() or "").strip()
@@ -3762,6 +3892,10 @@ class App(tk.Tk):
         self.run_bg(work)
 
     def _after_connect(self):
+        # 记住"用户连过这个口" —— 自动重连靠它, 也是它把"手动断开"和
+        # "意外掉线"区分开的: on_disconnect 会把它清掉。
+        self._want_port = self._port_name() or self.sm._port
+        self._last_conn_try = time.time()
         self.menu_tools.entryconfigure(self.mi_conn, state="disabled")
         self.menu_tools.entryconfigure(self.mi_disc, state="normal")
         self.var_status.set(tr("connected_status", port=self.sm._port))
@@ -3778,6 +3912,9 @@ class App(tk.Tk):
         self.refresh_local()
 
     def on_disconnect(self):
+        # 用户主动断开 -> 忘掉那个口。不这么做的话自动重连会立刻把它连回来,
+        # 用户会觉得"这个断开按钮没用"。
+        self._want_port = None
         try:
             if self.sm.is_open and self.sm.mode == "raw":
                 self.sm.enter_repl()
@@ -3785,6 +3922,27 @@ class App(tk.Tk):
             pass
         self.sm.close()
         self._after_disconnect()
+
+    def _on_link_lost(self):
+        """串口掉了 (拔线 / 板子复位) 的界面收尾。
+
+        ⚠ **不调 on_disconnect / _after_disconnect** —— 那两个会 _stop_reader,
+          而本函数正是从读线程那边投过来的消息, 停自己会卡住。
+          这里只做界面侧的事, 读线程下一轮因为 is_open=False 自己歇着,
+          重连成功后由 on_connect 重新拉起 (它本来就是从零起一个新线程)。
+        """
+        self.menu_tools.entryconfigure(self.mi_conn, state="normal")
+        self.menu_tools.entryconfigure(self.mi_disc, state="disabled")
+        self.var_status.set(tr("link_lost"))
+        try:
+            self.sm.close()
+        except Exception:
+            pass
+        self._render_dev()
+        self.tv_dev.delete(*self.tv_dev.get_children())
+        self._sync_mode_ui()
+        self._sync_file_ui()
+        self._sync_dog_ui()
 
     def _after_disconnect(self):
         self._stop_reader()
@@ -3825,7 +3983,16 @@ class App(tk.Tk):
         #   若把它写进 while 条件, 线程会直接退出 —— 烧完重开串口后
         #   终端就再也不刷新了。所以串口没开时只是跳过这一轮, 线程留着。
         while self._reader_on:
-            if not self.sm.is_open or self.sm.busy_io:
+            if not self.sm.is_open:
+                # ★ 掉线上报**一次**。判据里必须排除 self.busy —— 烧写会
+                #   **主动**关串口 (把口让给 esptool), 那不是掉线。
+                if self._was_linked and not self.busy:
+                    self._was_linked = False
+                    self.post("lost")
+                time.sleep(0.05)
+                continue
+            self._was_linked = True
+            if self.sm.busy_io:
                 time.sleep(0.05)
                 continue
             try:

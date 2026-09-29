@@ -212,6 +212,14 @@ C_TOOL_FG    = "#006D70"
 C_TOOL_HOVER = "#F7F9F9"   # toolbar.button.hoverBackground
 C_TOOL_DIM   = "#5E9FA0"   # 禁用态圆底 (比 C_TOOL_BG 暗, 表示不可点)
 
+# ---- 右上角那个连接状态徽标 ----
+# ⚠ 两个状态**连圆底一起换**, 不是只换里面的图形。
+#   早先两态共用一个 #7FCBCD 浅青圆底、图形用 #008184 —— 明度太近,
+#   放大看就是一团糊; 而且"没连上"和"连上了"看着一样亮, 状态读不出来。
+C_BADGE_ON     = "#005C5F"   # 已连接: 浅青圆底 + **深青**对勾 (同色系, 拉开明度)
+C_BADGE_OFF_BG = "#DAE3E3"   # 未连接: 圆底退成**浅灰** —— "没有"就该是灰的
+C_BADGE_OFF    = "#DF7365"   #   配柔和的红叉, 一眼就是"没连上" (C_DANGER 同色)
+
 
 # ======================================================================
 # 圆角外观 / rounded corners
@@ -247,18 +255,20 @@ def _seg_dist(px, py, ax, ay, bx, by):
 #   ("rect", x0, y0, x1, y1)          矩形**框** (只画边)
 #   ("box",  x0, y0, x1, y1)          实心矩形
 _ICONS = {
-    # 连接: 箭头插进一根竖条 (plug in)
-    # ⚠ 箭头那两笔**必须短**。笔画本身有宽度, 两笔在尖端夹出的实心三角会糊成一坨 ——
-    #   实拍 Arduino 圆里的 ✓ / → 都是细笔画 + 小箭头, 视觉重量全在这儿。
-    "connect": [("line", 0.08, 0.50, 0.60, 0.50),
-                ("line", 0.46, 0.34, 0.62, 0.50),
-                ("line", 0.46, 0.66, 0.62, 0.50),
-                ("line", 0.88, 0.16, 0.88, 0.84)],
-    # 断开: 向上抽出的箭头 + 底线 (拔出)
-    "disconnect": [("line", 0.50, 0.84, 0.50, 0.28),
-                   ("line", 0.36, 0.44, 0.50, 0.26),
-                   ("line", 0.64, 0.44, 0.50, 0.26),
-                   ("line", 0.16, 0.92, 0.84, 0.92)],
+    # 连接: 一个**插头** —— 两脚朝上、线缆朝下。这是 codicon/VS Code 的 plug 形状。
+    #   早先用"箭头插进竖条", 反馈是**意义不明** —— 箭头在这语境里太容易被读成
+    #   "播放 / 下一步"。插头没有第二种读法。
+    "connect": [("rect", 0.28, 0.42, 0.72, 0.78),    # 插头体
+                ("line", 0.39, 0.42, 0.39, 0.06),    # 左脚
+                ("line", 0.61, 0.42, 0.61, 0.06),    # 右脚
+                ("line", 0.50, 0.78, 0.50, 0.96)],   # 线缆
+    # 断开: 同一个插头 + 一道斜杠 ("插头禁用")。VS Code 的 debug-disconnect 就是
+    #   plug 叠 slash —— 复用同一个轮廓, 两个按钮才像一对, 而不是两个不相干的图形。
+    "disconnect": [("rect", 0.28, 0.42, 0.72, 0.78),
+                   ("line", 0.39, 0.42, 0.39, 0.06),
+                   ("line", 0.61, 0.42, 0.61, 0.06),
+                   ("line", 0.50, 0.78, 0.50, 0.96),
+                   ("line", 0.06, 0.92, 0.92, 0.06)],  # 斜杠
     # 已连接: 对勾
     "check": [("line", 0.12, 0.52, 0.38, 0.80), ("line", 0.38, 0.80, 0.88, 0.20)],
     # 未连接: 叉
@@ -372,13 +382,25 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
     (PPM 没有 alpha), 边缘抗锯齿也自然过渡到容器色。
     """
     def cov(x, y, inset):
-        n = ss; hit = 0
+        """像素 (x,y) 被圆角矩形覆盖的比例; inset = 形状向内缩多少像素。
+
+        ⚠ inset 必须是**真的把形状缩小** (半径减 inset), 不能把采样窗口平移 ——
+          平移的写法会让"内层覆盖率"在右下缘比"外层"还大 (ai > ao), 于是
+          下面那行权重的和变成 (1-ao)+(ao-ai)+ai = 1+ai-... > 1, **亮度溢出**:
+          圆的下缘会浮出一圈比填充色还亮的亮青描边 (实测抓出过 #7FFFFF,
+          而填充色是 #7FCBCD)。放大看就是"漏光"。
+        """
+        n = ss
+        rr = r - inset
+        if rr <= 0:
+            return 0.0
+        hit = 0
         for i in range(n):
             for j in range(n):
-                px, py = x + (i + 0.5) / n - inset, y + (j + 0.5) / n - inset
-                dx = max(r - px, px - (w - r), 0.0)
-                dy = max(r - py, py - (h - r), 0.0)
-                if dx * dx + dy * dy <= r * r:
+                sx, sy = x + (i + 0.5) / n, y + (j + 0.5) / n
+                dx = max(r - sx, sx - (w - r), 0.0)
+                dy = max(r - sy, sy - (h - r), 0.0)
+                if dx * dx + dy * dy <= rr * rr:
                     hit += 1
         return hit / (n * n)
     NL = chr(10)
@@ -1531,9 +1553,10 @@ class CircleButton(tk.Label):
         self._enabled = True
         super().__init__(master, bd=0, highlightthickness=0, bg=bg)
         self._imgs = {}
-        # 边距 0.20 —— 实拍 Arduino 圆里的图形约占直径的一半 (它圆 28px, 图形约 20px),
-        # 早先用 0.32 缩得太小, 圆看着空; 后来又放到 0.14, 配粗笔画显得要撑破圆。
-        _pad = int(self._n * 0.20)
+        # 边距 0.17 —— 实拍 Arduino 圆里的图形约占直径的七成 (它圆 28px, 图形约 20px)。
+        # 早先用 0.32 缩得太小, 圆看着空; 试过 0.14, 配当时那套粗笔画显得要撑破圆。
+        # 现在笔画收到 6%, 0.17 既填得满又不会顶到圆边。
+        _pad = int(self._n * 0.17)
         for key, fill, fg in (("",       C_TOOL_BG,    C_TOOL_FG),
                               ("hover",  C_TOOL_HOVER, C_TOOL_FG),
                               ("dim",    C_TOOL_DIM,   C_TOPBAR)):
@@ -1699,17 +1722,16 @@ class WorkArea(tk.Frame):
         # 只显示不可点 —— 连接/断开是左边那两个圆按钮的事, 这里只回答"现在是哪种状态"。
         self._badge_n = px(26)
         self._badge = {}
-        # 两种状态共用同一个**浅色圆底** (#7FCBCD), 只换里面的图形:
-        #   已连接 = 蓝对勾 ✓   未连接 = 蓝叉 ✕
-        # ⚠ 图形色用 C_ACCENT (#008184) 而不是 C_TOOL_FG (#006D70) —— 用户要的是
-        #   "蓝叉", #006D70 偏墨绿, #008184 才是 Arduino 调色板里最蓝的那个。
-        _bpad = int(self._badge_n * 0.22)
-        for key, shape in (("on", "check"), ("off", "cross")):
+        # 两个状态**连圆底一起换**: 已连接 = 浅青圆 + 深青对勾 / 未连接 = 浅灰圆 + 红叉。
+        # (为什么不是"共用一个圆底只换图形" —— 见 C_BADGE_* 那三行的注释)
+        _bpad = int(self._badge_n * 0.26)
+        for key, shape, bgc, fg in (("on",  "check", C_TOOL_BG, C_BADGE_ON),
+                                    ("off", "cross", C_BADGE_OFF_BG, C_BADGE_OFF)):
             im = tk.PhotoImage(data=_rr_ppm(self._badge_n, self._badge_n,
                                             self._badge_n / 2.0,
-                                            _rgb(C_TOOL_BG), _rgb(C_TOOL_BG),
+                                            _rgb(bgc), _rgb(bgc),
                                             _rgb(C_TOPBAR),
-                                            mark=(shape, C_ACCENT, _bpad)))
+                                            mark=(shape, fg, _bpad)))
             _ROUND_IMGS.append(im)
             self._badge[key] = im
         self.lbl_badge = tk.Label(top, bg=C_TOPBAR, bd=0, highlightthickness=0,
@@ -1998,6 +2020,11 @@ class App(tk.Tk):
                foreground=[("disabled", C_MUTED)],
                arrowcolor=[("active", C_ACCENT)])
         st.map("TEntry", foreground=[("disabled", C_MUTED)])
+        # ⚠ clam 给下拉箭头那一格写死了底色 #dcdad5 / 边框 #9e9a91, 而且 arrowcolor
+        #   是**空的** —— 白底输入框右边于是挂着个灰方块 + 一团黑三角, 像没画完。
+        #   这三行把它拉回和 field 一致 (实测 st.lookup 确认过原值)。
+        st.configure("Combobox.downarrow", background=C_FIELD, arrowcolor=C_TEXT,
+                     bordercolor=C_FIELD, lightcolor=C_FIELD, darkcolor=C_FIELD)
 
         # 页签条上的串口框 —— 同一套圆角图, 只是 **outside 换成条带色**,
         # 否则四角会露出白色方块 (outside 是烤进图里的, 容器色必须匹配)。

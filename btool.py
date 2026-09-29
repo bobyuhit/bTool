@@ -292,16 +292,34 @@ _ICONS = {
                 ("line", 0.90, 0.34, 0.90, 0.82),
                 ("line", 0.90, 0.82, 0.10, 0.82),
                 ("line", 0.10, 0.82, 0.10, 0.24)],
-    # 机器狗设置: 一个**狗头**。
-    #   试过齿轮 (28px 下画不出来, 见 _icon_hit 里 disc 那条注释), 也试过
-    #   耳朵朝上的圆头 —— 那个在 28px 下不是像熊就是像兔。**真正让狗一眼是狗的
-    #   是那对垂耳**, 而垂耳必须画成长条, 所以为此加了 oval (实心椭圆) 图元。
-    "ic_dog": [("oval", 0.02, 0.10, 0.28, 0.70),    # 左垂耳
-               ("oval", 0.72, 0.10, 0.98, 0.70),    # 右垂耳
-               ("circle", 0.22, 0.18, 0.78, 0.74),  # 头
-               ("disc", 0.34, 0.36, 0.45, 0.47),    # 左眼
-               ("disc", 0.55, 0.36, 0.66, 0.47),    # 右眼
-               ("oval", 0.42, 0.54, 0.58, 0.72)],   # 吻部
+    # 机器狗设置: 狗头 —— 照 **Lucide 的 "dog"** (lucide.dev, ISC 许可) 重画。
+    #   坐标是把它的 path 数据 (24x24 viewBox) 里的贝塞尔按控制点密采样成折线
+    #   再除以 24 得到的 —— 手描曲线一定歪, 按控制点算是唯一稳的办法。
+    #   自己用圆/椭圆拼过一版, 是一坨色块; 差距就在"连续笔画" vs "拼形状"。
+    "ic_dog": [
+        # 脸的下半轮廓 (下巴那圈 U 形)
+        ("poly",
+         0.124, 0.464, 0.104, 0.624, 0.118, 0.719, 0.156, 0.796,
+         0.217, 0.858, 0.297, 0.903, 0.389, 0.930, 0.494, 0.939,
+         0.591, 0.930, 0.681, 0.903, 0.762, 0.858, 0.826, 0.796,
+         0.868, 0.719, 0.883, 0.624, 0.860, 0.464),
+        # 两只垂耳 + 头顶 —— Lucide 里这是**一条**连续路径, 照抄
+        ("poly",
+         0.323, 0.329, 0.306, 0.367, 0.282, 0.400, 0.250, 0.430,
+         0.209, 0.451, 0.141, 0.464, 0.085, 0.453, 0.046, 0.430,
+         0.030, 0.403, 0.035, 0.350, 0.057, 0.268, 0.096, 0.177,
+         0.152, 0.101, 0.225, 0.061, 0.313, 0.067, 0.378, 0.108,
+         0.403, 0.170, 0.443, 0.144, 0.495, 0.136, 0.547, 0.145,
+         0.591, 0.172, 0.607, 0.124, 0.648, 0.086, 0.707, 0.062,
+         0.775, 0.061, 0.848, 0.101, 0.904, 0.177, 0.943, 0.268,
+         0.965, 0.350, 0.970, 0.403, 0.954, 0.430, 0.915, 0.453,
+         0.859, 0.464, 0.792, 0.451, 0.741, 0.420, 0.705, 0.378,
+         0.682, 0.329),
+        ("line", 0.298, 0.597, 0.298, 0.622),    # 左眼
+        ("line", 0.689, 0.597, 0.689, 0.622),    # 右眼
+        ("poly", 0.457, 0.707, 0.530, 0.707,     # 鼻子 (个小三角)
+                 0.494, 0.743, 0.457, 0.707),
+    ],
     # 芯片: 方框 + 四脚
     "ic_chip": [("rect", 0.26, 0.26, 0.74, 0.74),
                 ("line", 0.50, 0.10, 0.50, 0.26),
@@ -339,6 +357,17 @@ def _icon_hit(x, y, box, name, th):
             rad = min(c - a, d - b) / 2.0
             if ((x - cxx) ** 2 + (y - cyy) ** 2) ** 0.5 <= rad:
                 return True
+        elif k == "poly":
+            # 折线: ("poly", x0,y0, x1,y1, ..., xn,yn) —— 一串**相连**的线段。
+            # 加它是为了画曲线。现有图元 (线段/方框/圆/椭圆) 只能"拼"出形状,
+            # 拼出来的东西是一坨色块; 而成熟图标集 (Lucide / Feather / Tabler)
+            # 的图形都是**连续笔画**。把贝塞尔曲线密采样成折线, 28px 下与曲线无异。
+            np_ = (len(st) - 1) // 2
+            qx = [x0 + st[1 + 2 * i] * W for i in range(np_)]
+            qy = [y0 + st[2 + 2 * i] * H for i in range(np_)]
+            for i in range(np_ - 1):
+                if _seg_dist(x, y, qx[i], qy[i], qx[i + 1], qy[i + 1]) <= th:
+                    return True
         elif k == "oval":
             # 实心椭圆 —— disc 是正圆 (只取短边), 画不出"垂耳"这种长条形状。
             # (2026-09-30 加: 狗头图标光靠正圆拼, 耳朵不是大了像熊就是尖了像兔,
@@ -361,6 +390,12 @@ def _icon_hit(x, y, box, name, th):
 
 
 
+# 个别图标的**笔画缩放**。默认线宽是按稀疏图形 (箭头/文件夹/终端) 定的;
+# 狗脸有三组细节 (耳/眼/鼻) 挤在 21px 里, 用默认线宽会糊成一坨色块 ——
+# 放大并排比过, 0.8 倍时耳眼鼻才分得开, 而且重量跟旁边几个仍然接近。
+_ICON_STROKE = {"ic_dog": 0.8}
+
+
 def _icon_ppm(n, name, fg, bg, ss=4, th=None):
     """线描图标 → n×n 的 PPM(P6) 原始字节 (线条 fg, 背景 bg)。
 
@@ -370,7 +405,8 @@ def _icon_ppm(n, name, fg, bg, ss=4, th=None):
     坐标走 _ICONS 的归一化表, 所以同一个图标名在任意尺寸下都成立
     (竖栏 26px、圆按钮里 14px, 都是同一份定义)。
     """
-    th = th if th is not None else max(1.0, n * 0.062)   # 线宽 ≈ 图标尺寸的 6.2%
+    # 线宽 ≈ 图标尺寸的 6.2%。个别**密集**图标再放细一档 (见 _ICON_STROKE)。
+    th = th if th is not None else max(1.0, n * 0.062 * _ICON_STROKE.get(name, 1.0))
     box = (n * 0.12, n * 0.12, n * 0.88, n * 0.88)       # 图形占中间 76%
     fr, fgn, fb = _rgb(fg)
     br, bgn, bb = _rgb(bg)
@@ -694,12 +730,61 @@ LANG = {
         "dog_read_ok": "已读取, 各框已填上板子当前的值",
         "dog_write_ok": "已写入板子 (NVS 已保存, 掉电不丢)",
         "dog_write_partial": "部分参数被板子拒绝 —— 看下面的输出, 被拒的会保持原值",
-        "dog_bad_num": "「%s」里的 %r 不是数字 —— 请填一个数 (如 40 或 62.5)",
+        "dog_bad_num": "「{field}」里的 {val!r} 不是数字 —— 请填一个数 (如 40 或 62.5)",
+
+        # --- 校准 ---
+        "dog_cal": "校准",
+        "cal_servo": "舵机关节校准",
+        "cal_imu": "加速度计与陀螺仪校准",
+        "cal_mag": "地磁校准",
+        "close": "关闭",
+        "cal_ch": "通道",
+        "cal_test": "试转角度",
+        "cal_go": "转到",
+        "cal_read": "读取板子上的值",
+        "cal_reset": "全部恢复默认",
+        "cal_start": "开始校准",
+        "cal_moved": "已把 {ch} 转到 {deg:.1f}°",
+        "cal_bad_angle": "试转角度不是数字",
+        "cal_bad_num": "{ch} 的 {p}° 点填的 {val!r} 不是数字",
+        "cal_read_n": "已读取 {n} 个标定点, 各框已填上板子当前的值",
+        "cal_reset_hint": "已把 24 个格子填回出厂默认 (0/90/180)。\n"
+                          "这只是填格子, 没写板子 —— 确认后按 [写入]。",
+        "cal_writing": "正在写入 … (舵机会逐个转到参考角, 抽动是正常的)",
+        "cal_servo_hint":
+            "让「命令角度」和「舵机实际转到的角度」对上。\n"
+            "做法: 点某行的 [转到], 看那条腿实际指到哪儿, 把实际角度填进那一格。\n"
+            "⚠ 写入时舵机会立刻逐个转到参考角 —— 24 下抽动是正常的, 别按急停。",
+        "cal_imu_hint":
+            "⚠ 校准期间狗必须水平放稳、不要碰。\n"
+            "它会采样一段时间求零偏。中间晃动会把偏置算歪, 而算歪的表现是"
+            "「姿态角慢慢漂」, 不容易联想到是标定没做好。",
+        "cal_samples": "采样次数",
+        "cal_samples_hint": "(300 次 ≈ 3 秒, 3000 次 ≈ 30 秒)",
+        "cal_imu_going": "正在标定, 采样 {n} 次 …",
+        "cal_imu_done": "标定完成 (板子没回话, 但没报错)",
+        "cal_out": "输出",
+        "cal_chip_unknown": "读不到 IMU (没连板子或没接芯片)",
+        "cal_chip_mag": "带磁力计",
+        "cal_chip_nomag": "无磁力计",
+        "cal_mag_hint":
+            "⚠ 只有带磁力计的芯片 (MPU9250) 能做。\n"
+            "做法: 点 [开始采集] 后, 把狗朝各个方向慢慢转, 尽量每个方向都转到,"
+            "采够样本再 [结束并拟合]。\n"
+            "只在一个平面里转是不够的 —— 椭球拟合要三个方向的极值都采到。",
+        "cal_mag_start": "开始采集",
+        "cal_mag_finish": "结束并拟合",
+        "cal_mag_started": "已开始采集 —— 现在慢慢转动狗",
+        "cal_mag_count": "已采样本: {n}",
+        "cal_mag_none": "这块板子没有磁力计, 做不了",
+        "cal_mag_fitting": "正在拟合 …",
+        "cal_mag_resid": "残差: {r:.4f}",
+        "cal_mag_resid_none": "拟合失败 (样本不够或分布太差)",
         "dog_read_empty": "没读到任何参数 —— 板子上有 bpuppy_motion 模块吗?",
         "dog_reject_title": "板子拒绝了参数",
-        "dog_reject_body": "板子拒绝了其中一些值, 它们保持原样:\n\n%s",
+        "dog_reject_body": "板子拒绝了其中一些值, 它们保持原样:\n\n{msg}",
         "dog_no_reply_title": "板子没回话",
-        "dog_no_reply": "板子没有回话, 这次写入可能没生效。原始回显:\n\n%s",
+        "dog_no_reply": "板子没有回话, 这次写入可能没生效。原始回显:\n\n{msg}",
 
         # 烧写页
         "add_fw": "添加固件…",
@@ -818,7 +903,7 @@ LANG = {
         "autoscroll": "自动滚屏",
         "autoreconnect": "自动重连",
         "link_lost": "连接已断开 (设备被拔出或复位)",
-        "reconnecting": "正在自动重连 %s …",
+        "reconnecting": "正在自动重连 {port} …",
         "copied": "已复制",
 
         "no_esptool": "缺少 esptool:  pip install esptool",
@@ -927,12 +1012,63 @@ LANG = {
         "dog_read_ok": "Read back — fields now hold the board's values",
         "dog_write_ok": "Written to the board (saved in NVS)",
         "dog_write_partial": "Some values were rejected — see the output below",
-        "dog_bad_num": "\u300c%s\u300d has %r, which is not a number — enter e.g. 40 or 62.5",
+        "dog_bad_num": "\u300c{field}\u300d has {val!r}, which is not a number — enter e.g. 40 or 62.5",
+
+        # --- calibration ---
+        "dog_cal": "Calibration",
+        "cal_servo": "Servo joints",
+        "cal_imu": "Accel & gyro",
+        "cal_mag": "Magnetometer",
+        "close": "Close",
+        "cal_ch": "Channel",
+        "cal_test": "Test angle",
+        "cal_go": "Move",
+        "cal_read": "Read from board",
+        "cal_reset": "Reset to default",
+        "cal_start": "Start",
+        "cal_moved": "Moved {ch} to {deg:.1f}\u00b0",
+        "cal_bad_angle": "Test angle is not a number",
+        "cal_bad_num": "{ch} {p}\u00b0 point has {val!r}, not a number",
+        "cal_read_n": "Read {n} calibration points into the fields",
+        "cal_reset_hint": "Fields reset to factory default (0/90/180).\n"
+                          "This only fills the fields — press [Write] to apply.",
+        "cal_writing": "Writing ... (each servo jumps to its reference angle)",
+        "cal_servo_hint":
+            "Make the commanded angle match where the servo actually points.\n"
+            "Click a row's [Move], see where that leg points, type the ACTUAL "
+            "angle into that cell.\n"
+            "\u26a0 Writing makes every servo jump to its reference angle.",
+        "cal_imu_hint":
+            "\u26a0 The dog must sit level and still during calibration.\n"
+            "It averages out the bias; moving mid-way skews it, and a skewed "
+            "bias shows up as a slowly drifting attitude angle.",
+        "cal_samples": "Samples",
+        "cal_samples_hint": "(300 \u2248 3 s, 3000 \u2248 30 s)",
+        "cal_imu_going": "Calibrating, {n} samples ...",
+        "cal_imu_done": "Done (no reply, but no error either)",
+        "cal_out": "Output",
+        "cal_chip_unknown": "Cannot read IMU (no board / no chip)",
+        "cal_chip_mag": "has magnetometer",
+        "cal_chip_nomag": "no magnetometer",
+        "cal_mag_hint":
+            "\u26a0 Needs an MPU9250 (the 6050 has no magnetometer).\n"
+            "Press [Start], then slowly rotate the dog through ALL orientations, "
+            "then [Finish & fit].\n"
+            "One plane is not enough — the ellipsoid fit needs extremes on all "
+            "three axes.",
+        "cal_mag_start": "Start",
+        "cal_mag_finish": "Finish & fit",
+        "cal_mag_started": "Collecting — rotate the dog slowly now",
+        "cal_mag_count": "Samples: {n}",
+        "cal_mag_none": "This board has no magnetometer",
+        "cal_mag_fitting": "Fitting ...",
+        "cal_mag_resid": "Residual: {r:.4f}",
+        "cal_mag_resid_none": "Fit failed (too few samples / poor spread)",
         "dog_read_empty": "No parameters came back — does the board have bpuppy_motion?",
         "dog_reject_title": "Values rejected",
-        "dog_reject_body": "The board rejected some values; they keep their old ones:\n\n%s",
+        "dog_reject_body": "The board rejected some values; they keep their old ones:\n\n{msg}",
         "dog_no_reply_title": "No reply from the board",
-        "dog_no_reply": "The board did not answer; this write may not have applied. Raw reply:\n\n%s",
+        "dog_no_reply": "The board did not answer; this write may not have applied. Raw reply:\n\n{msg}",
 
         "add_fw": "Add firmware…",
         "remove_sel": "Remove",
@@ -1054,7 +1190,7 @@ LANG = {
         "autoscroll": "Auto-scroll",
         "autoreconnect": "Auto-reconnect",
         "link_lost": "Connection lost (device unplugged or reset)",
-        "reconnecting": "Reconnecting to %s …",
+        "reconnecting": "Reconnecting to {port} …",
         "copied": "Copied",
 
         "no_esptool": "esptool missing:  pip install esptool",
@@ -1120,7 +1256,13 @@ _LANG_ID = "zh"
 
 
 def tr(key, **kw):
-    """取当前语言下的字符串; 缺键回退中文, 再缺就原样返回 key。"""
+    """取当前语言下的字符串; 缺键回退中文, 再缺就原样返回 key。
+
+    ⚠ 占位符是 **str.format 的 {name} 语法**, 不是 %d/%s。
+      而且这里 format 失败时是 **except 掉原样返回**的 —— 写错了不会报错,
+      界面上那句会连着 %d 一起显示出来, 得盯着看才发现。
+      (实测踩过: "已读取 %d 个标定点" 原样打在输出框里。)
+    """
     s = LANG.get(_LANG_ID, LANG["zh"]).get(key)
     if s is None:
         s = LANG["zh"].get(key, key)
@@ -1790,6 +1932,132 @@ def dog_write_params(sm, vals, section):
             "print('NOW %.3f %.3f %.3f %.3f' % (g[0], g[1], g[2], g[3]))" + chr(10))
     out, err = sm.raw_exec(code, timeout=8.0)
     return (out or "") + (err or "")
+# ---- 校准 / calibration ----
+# 舵机通道名。顺序跟固件里 show_geometry() 打印的一致, 照抄以免对不上号。
+SERVO_CH_NAMES = ("LF_HIP", "LF_KNEE", "LH_HIP", "LH_KNEE",
+                  "RF_HIP", "RF_KNEE", "RH_HIP", "RH_KNEE")
+
+# 出厂标定 = 恒等映射 (0→0, 90→90, 180→180)。见 servo_driver.c 的 cal_load_from_nvs()。
+SERVO_CAL_DEFAULT = (0.0, 90.0, 180.0)
+
+
+def servo_read_cal(sm):
+    """读回 8 路 × 3 点的标定。返回 ({(ch, point): deg}, 板子原始输出)。"""
+    code = ("import bpuppy_servo as s" + chr(10) +
+            "for ch in range(8):" + chr(10) +
+            "    for p in range(3):" + chr(10) +
+            "        print('CP %d %d %.2f' % (ch, p, s.get_cal_point(ch, p)))" + chr(10))
+    out, err = sm.raw_exec(code, timeout=8.0)
+    vals = {}
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line.startswith("CP "):
+            continue
+        try:
+            ch, p, v = line[3:].split()
+            vals[(int(ch), int(p))] = float(v)
+        except ValueError:
+            continue
+    return vals, (out or "") + (err or "")
+
+
+def servo_write_cal(sm, pairs):
+    """pairs = [((ch, point), deg), ...]。
+
+    ⚠ smooth: 固件的 servo_set_cal_point() **写完立刻驱动舵机**到那个参考角
+      (让用户当场看效果)。所以一次写 24 个点, 狗会连着抽 24 下 —— 界面上
+      得提前讲清楚, 别让人以为坏了。
+    """
+    lines = ["import bpuppy_servo as s"]
+    for (ch, p), deg in pairs:
+        lines.append("s.cal_point(%d, %d, %.2f)" % (ch, p, deg))
+    lines.append("print('CAL DONE')")
+    out, err = sm.raw_exec(chr(10).join(lines), timeout=15.0)
+    return (out or "") + (err or "")
+
+
+def servo_move(sm, ch, deg):
+    """试转一路舵机到指定角度。"""
+    out, err = sm.raw_exec(
+        "import bpuppy_servo as s" + chr(10) +
+        "s.set_angle(%d, %.2f)" % (ch, deg) + chr(10), timeout=5.0)
+    return (out or "") + (err or "")
+
+
+def imu_calibrate(sm, n):
+    """加速度计 + 陀螺仪零偏标定。
+
+    ⚠ 固件里是 n 次采样、每次间隔 10ms —— 300 次约 3 秒, 3000 次约 30 秒。
+      超时按 n 算, 别用固定值 (用固定值的话 3000 次会被半路掐断, 而标定
+      被打断的后果是"看着成功、实际没标")。
+    """
+    out, err = sm.raw_exec(
+        "import bpuppy_imu as i" + chr(10) +
+        "i.calibrate(%d)" % int(n) + chr(10),
+        timeout=max(15.0, n * 0.05 + 15.0))
+    return (out or "") + (err or "")
+
+
+def imu_info(sm):
+    """芯片名 + 有没有磁力计。有没有磁力计**只能问 has_mag()**, 不能看型号。"""
+    out, err = sm.raw_exec(
+        "import bpuppy_imu as i" + chr(10) +
+        "print('IMU %s %d' % (i.get_chip(), 1 if i.has_mag() else 0))" + chr(10),
+        timeout=5.0)
+    chip, has = "", False
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("IMU "):
+            parts = line[4:].rsplit(" ", 1)
+            chip = parts[0]
+            has = len(parts) > 1 and parts[1] == "1"
+    return chip, has, (out or "") + (err or "")
+
+
+def mag_cal_start(sm):
+    out, err = sm.raw_exec(
+        "import bpuppy_imu as i" + chr(10) + "i.mag_cal_start()" + chr(10), timeout=5.0)
+    return (out or "") + (err or "")
+
+
+def mag_cal_collect(sm):
+    """取一次采集进度。返回 (ok, count, 板子原始输出)。
+
+    固件的 mag_cal_collect() 回一个 11 元组:
+        (ok, count, rx,ry,rz, mnx,mxx, mny,mxy, mnz,mxz)
+    中间那 9 个是椭球拟合用的量, 这里只在最后拟合时要, 所以只取前两个。
+    """
+    out, err = sm.raw_exec(
+        "import bpuppy_imu as i" + chr(10) +
+        "r = i.mag_cal_collect()" + chr(10) +
+        "print('MC %d %d' % (1 if r[0] else 0, r[1]))" + chr(10), timeout=5.0)
+    ok, count = False, 0
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("MC "):
+            try:
+                a, b = line[3:].split()
+                ok, count = (a == "1"), int(float(b))
+            except ValueError:
+                pass
+    return ok, count, (out or "") + (err or "")
+
+
+def mag_cal_finish(sm):
+    """结束并拟合。返回 (残差, 板子原始输出)。"""
+    out, err = sm.raw_exec(
+        "import bpuppy_imu as i" + chr(10) +
+        "print('RES %.4f' % i.mag_cal_finish())" + chr(10), timeout=20.0)
+    resid = None
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("RES "):
+            try:
+                resid = float(line[4:])
+            except ValueError:
+                pass
+    return resid, (out or "") + (err or "")
+
 
 
 class CircleButton(tk.Label):
@@ -2076,6 +2344,9 @@ class App(tk.Tk):
         self._was_linked = False           # 上一轮读循环时串口是不是开着的 (掉线去重用)
         self._want_port = None             # 用户上次连上的口; 自动重连认它, 主动断开清它
         self._last_conn_try = 0.0          # 上次尝试连的时刻 (自动重连的冷却用)
+        self._cal_win = None               # 当前开着的校准框 (没开是 None)
+        self._cal_log = None               # 它的输出区写入口
+        self._cal_poll = False             # 地磁采集的进度轮询开关
         self._drain_id = None              # UI 消息泵的定时器 id (关窗时要取消)
         self._port_timer = None            # 串口轮询的定时器 id
 
@@ -2894,6 +3165,20 @@ class App(tk.Tk):
                 self.dog_vars[key] = var
                 ttk.Entry(cell, textvariable=var, width=8).pack(side="left")
 
+        # 「校准」一栏 —— 三个都是"点开弹框"的操作型项目, 没有输入框,
+        # 所以不走 DOG_GROUPS (那一套是给"填数字 + 读/写"用的)。
+        lfc = ttk.Labelframe(p, text=tr("dog_cal"), padding=(px(PAD_S), px(PAD_XS)))
+        lfc.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_XS), 0))
+        rowc = ttk.Frame(lfc)
+        rowc.pack(fill="x")
+        self.cal_btns = []
+        for key, cmd in (("cal_servo", self.on_cal_servo),
+                         ("cal_imu", self.on_cal_imu),
+                         ("cal_mag", self.on_cal_mag)):
+            b = ttk.Button(rowc, text=tr(key), width=22, command=cmd)
+            b.pack(side="left", padx=(0, px(PAD_S)))
+            self.cal_btns.append(b)
+
         self._sync_dog_ui()
 
     def _sync_dog_ui(self):
@@ -2910,6 +3195,11 @@ class App(tk.Tk):
                     b.configure(state=state)
                 except Exception:
                     pass
+        for b in getattr(self, "cal_btns", []):      # 校准那三个按钮同理
+            try:
+                b.configure(state=state)
+            except Exception:
+                pass
         try:
             if ok:
                 self.lbl_dog_hint.configure(text="")
@@ -2965,7 +3255,7 @@ class App(tk.Tk):
             return
         vals, bad_key, bad_raw = self._dog_collect(section)
         if vals is None:
-            messagebox.showwarning(APP_NAME, tr("dog_bad_num", key=bad_key,
+            messagebox.showwarning(APP_NAME, tr("dog_bad_num", field=bad_key,
                                                 val=bad_raw))
             return
 
@@ -2998,6 +3288,326 @@ class App(tk.Tk):
         for key, v in (vals or {}).items():
             if key in self.dog_vars:
                 self.dog_vars[key].set(("%.1f" % v).rstrip("0").rstrip("."))
+
+    # ---- 校准 / calibration dialogs ----
+    def _cal_dlg(self, title, w, h):
+        """建一个校准用的对话框外壳, 返回 (win, body)。
+        三个校准框长得一样, 只有中间那块不同。"""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.configure(bg=C_FIELD)
+        win.transient(self)
+        win.resizable(False, False)
+        body = ttk.Frame(win)
+        body.pack(fill="both", expand=True, padx=px(PAD_M), pady=px(PAD_M))
+        self._cal_win = win
+        self._cal_log = None            # 由具体对话框填上"往哪儿写日志"
+        return win, body
+
+    @staticmethod
+    def _cal_out(parent, height=7):
+        """校准框底部那块输出区 (和烧写日志同一个观感)"""
+        lbl = ttk.Label(parent, text=tr("cal_out"))
+        lbl.pack(anchor="w", pady=(px(PAD_S), 0))
+        txt = tk.Text(parent, height=height, wrap="word", bg=C_OUT_BG, fg=C_OUT_FG,
+                      insertbackground=C_OUT_FG, selectbackground=C_ACCENT_LT,
+                      relief="flat", font=FONT_MONO)
+        txt.pack(fill="both", expand=True, pady=(px(PAD_XS), 0))
+        return txt
+
+    def _wire_cal_log(self, txt):
+        """把这个框的输出区接上后台线程的日志 —— 线程不碰 Tk, 走消息泵中转"""
+        def sink(text):
+            try:
+                txt.insert("end", str(text).rstrip() + chr(10))
+                txt.see("end")
+            except Exception:
+                pass
+        self._cal_log = sink
+
+    def _cal_footer(self, parent, buttons):
+        """底部按钮行: 左边一组动作, 右边永远一个「关闭」"""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(px(PAD_M), 0))
+        ttk.Button(row, text=tr("close"), width=10, style="Plain.TButton",
+                   command=self._close_cal).pack(side="right")
+        for txt, cmd, style in buttons:
+            ttk.Button(row, text=txt, width=16, style=style,
+                       command=cmd).pack(side="left", padx=(0, px(PAD_S)))
+        return row
+
+    def _close_cal(self):
+        self._cal_poll = False
+        try:
+            self._cal_win.destroy()
+        except Exception:
+            pass
+        self._cal_win = None
+        self._cal_log = None
+
+    def _cal_guard(self):
+        """所有校准动作的前置检查 —— 没连板子就什么都别做"""
+        if not self.need_conn() or not self.repl_ok:
+            messagebox.showwarning(APP_NAME, tr("dog_need_conn"))
+            return False
+        return True
+
+    # ---- ① 舵机关节校准 ----
+    def on_cal_servo(self):
+        if not self._cal_guard():
+            return
+        win, body = self._cal_dlg(tr("cal_servo"), 700, 560)
+        ttk.Label(body, text=tr("cal_servo_hint"), justify="left",
+                  foreground=C_TEXT).pack(fill="x")
+
+        tbl = ttk.Frame(body)
+        tbl.pack(fill="x", pady=(px(PAD_S), 0))
+        for c, head in enumerate((tr("cal_ch"), "0°", "90°", "180°", tr("cal_test"))):
+            ttk.Label(tbl, text=head).grid(row=0, column=c, padx=px(PAD_XS),
+                                           pady=px(PAD_XS), sticky="w")
+        self.cal_vars = {}
+        self.cal_test = tk.StringVar(value="90")
+        for r, name in enumerate(SERVO_CH_NAMES):
+            ttk.Label(tbl, text=name, width=9).grid(row=r + 1, column=0,
+                                                    sticky="w", padx=px(PAD_XS))
+            for p in range(3):
+                v = tk.StringVar(value="%.1f" % SERVO_CAL_DEFAULT[p])
+                self.cal_vars[(r, p)] = v
+                ttk.Entry(tbl, textvariable=v, width=8).grid(
+                    row=r + 1, column=p + 1, padx=px(PAD_XS), pady=px(1))
+            ttk.Entry(tbl, textvariable=self.cal_test, width=6).grid(
+                row=r + 1, column=4, padx=(px(PAD_L), px(PAD_XS)))
+            ttk.Button(tbl, text=tr("cal_go"), width=6,
+                       command=lambda ch=r: self.on_cal_move(ch)).grid(
+                row=r + 1, column=5, padx=px(PAD_XS), pady=px(1), sticky="w")
+
+        self.cal_txt = self._cal_out(body)
+        self._wire_cal_log(self.cal_txt)
+        self._cal_footer(body, (
+            (tr("cal_read"), self.on_cal_read, None),
+            (tr("cal_reset"), self.on_cal_reset, None),
+            (tr("dog_write"), self.on_cal_write, "AccentPage.TButton"),
+        ))
+        self.on_cal_read()
+
+    def on_cal_read(self):
+        if not self._cal_guard():
+            return
+
+        def work():
+            try:
+                vals, raw = servo_read_cal(self.sm)
+                self.post("cal_servo_vals", vals=vals)
+                self.post("cal_log", text=tr("cal_read_n", n=len(vals)))
+            except Exception as e:
+                self.post("cal_log", text="%s" % e)
+
+        self.run_bg(work)
+
+    def on_cal_reset(self):
+        """把 24 个格子填回出厂值 —— **只填格子, 不写板子**。
+
+        不直接写盘是有意的: 写标定会当场驱动舵机, 24 下连抽, 而"我想恢复默认"
+        和"我现在就要写进去"是两件事。填完格子由用户自己按 [写入]。
+        """
+        for key, v in self.cal_vars.items():
+            v.set("%.1f" % SERVO_CAL_DEFAULT[key[1]])
+        self._cal_log(tr("cal_reset_hint"))
+
+    def on_cal_move(self, ch):
+        if not self._cal_guard():
+            return
+        try:
+            deg = float((self.cal_test.get() or "").strip())
+        except ValueError:
+            messagebox.showwarning(APP_NAME, tr("cal_bad_angle"))
+            return
+
+        def work():
+            try:
+                self.post("cal_log", text=servo_move(self.sm, ch, deg) or
+                          tr("cal_moved", ch=SERVO_CH_NAMES[ch], deg=deg))
+            except Exception as e:
+                self.post("cal_log", text="%s" % e)
+
+        self.run_bg(work)
+
+    def on_cal_write(self):
+        if not self._cal_guard():
+            return
+        pairs = []
+        for (ch, p), v in self.cal_vars.items():
+            raw = (v.get() or "").strip()
+            try:
+                pairs.append(((ch, p), float(raw)))
+            except ValueError:
+                messagebox.showwarning(APP_NAME, tr("cal_bad_num",
+                                                    ch=SERVO_CH_NAMES[ch], p=p * 90,
+                                                    val=raw))
+                return
+
+        def work():
+            self.post("cal_log", text=tr("cal_writing"))
+            try:
+                self.post("cal_log", text=servo_write_cal(self.sm, pairs))
+            except Exception as e:
+                self.post("cal_log", text="%s" % e)
+
+        self.run_bg(work)
+
+    def _fill_cal(self, vals):
+        for key, v in (vals or {}).items():
+            if key in self.cal_vars:
+                self.cal_vars[key].set("%.1f" % v)
+
+    # ---- ② 加速度计与陀螺仪校准 ----
+    def on_cal_imu(self):
+        if not self._cal_guard():
+            return
+        win, body = self._cal_dlg(tr("cal_imu"), 620, 460)
+        ttk.Label(body, text=tr("cal_imu_hint"), justify="left",
+                  foreground=C_TEXT).pack(fill="x")
+
+        row = ttk.Frame(body)
+        row.pack(fill="x", pady=(px(PAD_S), 0))
+        ttk.Label(row, text=tr("cal_samples")).pack(side="left")
+        self.var_cal_n = tk.StringVar(value="300")
+        ttk.Entry(row, textvariable=self.var_cal_n, width=8).pack(side="left",
+                                                                 padx=px(PAD_XS))
+        ttk.Label(row, text=tr("cal_samples_hint"),
+                  foreground=C_MUTED).pack(side="left", padx=(0, px(PAD_L)))
+        self.lbl_cal_chip = ttk.Label(row, foreground=C_TEXT, text="")
+        self.lbl_cal_chip.pack(side="right")
+
+        self.cal_txt = self._cal_out(body)
+        self._wire_cal_log(self.cal_txt)
+        self._cal_footer(body, ((tr("cal_start"), self.on_cal_imu_go, None),))
+        self._load_imu_info()
+
+    def _load_imu_info(self):
+        def work():
+            try:
+                chip, has, _raw = imu_info(self.sm)
+                self.post("cal_imu_info", chip=chip, has=has)
+            except Exception as e:
+                # 读不到就把原因摆出来。让那两行一直空着的话, 看着像界面坏了,
+                # 而实际是"没连板子 / IMU 没接" —— 这两种状况得能区分开。
+                self.post("cal_imu_info", chip="", has=None, err="%s" % e)
+        self.run_bg(work)
+
+    def on_cal_imu_go(self):
+        if not self._cal_guard():
+            return
+        try:
+            n = int(float((self.var_cal_n.get() or "").strip()))
+        except ValueError:
+            messagebox.showwarning(APP_NAME, tr("cal_bad_angle"))
+            return
+        n = max(10, min(5000, n))
+
+        def work():
+            self.post("cal_log", text=tr("cal_imu_going", n=n))
+            try:
+                self.post("cal_log", text=imu_calibrate(self.sm, n) or
+                          tr("cal_imu_done"))
+            except Exception as e:
+                self.post("cal_log", text="%s" % e)
+
+        self.run_bg(work)
+
+    # ---- ③ 地磁校准 ----
+    def on_cal_mag(self):
+        if not self._cal_guard():
+            return
+        win, body = self._cal_dlg(tr("cal_mag"), 620, 470)
+        ttk.Label(body, text=tr("cal_mag_hint"), justify="left",
+                  foreground=C_TEXT).pack(fill="x")
+
+        row = ttk.Frame(body)
+        row.pack(fill="x", pady=(px(PAD_S), 0))
+        self.lbl_mag_chip = ttk.Label(row, foreground=C_TEXT, text="")
+        self.lbl_mag_chip.pack(side="left")
+        self.var_mag_stat = tk.StringVar(value="")
+        ttk.Label(row, textvariable=self.var_mag_stat,
+                  foreground=C_TEXT).pack(side="right")
+
+        self.cal_txt = self._cal_out(body)
+        self._wire_cal_log(self.cal_txt)
+        self.btn_mag_start, self.btn_mag_fin = self._cal_footer_ret(body, (
+            (tr("cal_mag_start"), self.on_cal_mag_start, None),
+            (tr("cal_mag_finish"), self.on_cal_mag_finish, "AccentPage.TButton"),
+        ))
+        self._load_imu_info()
+        self._cal_poll = False
+
+    def _cal_footer_ret(self, parent, specs):
+        """和 _cal_footer 一样, 但把建出来的按钮**返回**, 好在别处改它们的状态。
+
+        ⚠ 按钮必须在这里创建。原先的写法是在 body 上先建好、回头调 pack() ——
+          那样它们**仍然是 body 的子控件**, pack 到的是 body 而不是这一行:
+          Tk 按**创建时的父控件**决定归属, 不看是谁调的 pack。
+          症状: 两个按钮掉到输出框下面另起一行, 而「关闭」孤零零留在那一行。
+        """
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(px(PAD_M), 0))
+        ttk.Button(row, text=tr("close"), width=10, style="Plain.TButton",
+                   command=self._close_cal).pack(side="right")
+        made = []
+        for txt, cmd, style in specs:
+            b = ttk.Button(row, text=txt, width=16, style=style, command=cmd)
+            b.pack(side="left", padx=(0, px(PAD_S)))
+            made.append(b)
+        return made
+
+    def on_cal_mag_start(self):
+        if not self._cal_guard():
+            return
+        try:
+            self.btn_mag_fin.configure(state="normal")
+        except Exception:
+            pass
+
+        def work():
+            self.post("cal_log", text=mag_cal_start(self.sm) or
+                      tr("cal_mag_started"))
+            self.post("cal_mag_begin")
+
+        self.run_bg(work)
+
+    def _mag_poll(self):
+        """采集期间定时问一次进度。**只在采集开着的时候跑** —— 每 700ms 一次
+        raw_exec, 一直跑着会平白占着串口。"""
+        if not getattr(self, "_cal_poll", False) or not self._cal_win:
+            return
+
+        def work():
+            try:
+                ok, cnt, _raw = mag_cal_collect(self.sm)
+                self.post("cal_mag_stat", count=cnt, ok=ok)
+            except Exception:
+                pass
+
+        self.run_bg(work)
+        try:
+            self._cal_win.after(700, self._mag_poll)
+        except Exception:
+            pass
+
+    def on_cal_mag_finish(self):
+        if not self._cal_guard():
+            return
+        self._cal_poll = False
+
+        def work():
+            self.post("cal_log", text=tr("cal_mag_fitting"))
+            try:
+                resid, raw = mag_cal_finish(self.sm)
+                self.post("cal_log", text=raw)
+                self.post("cal_mag_done", resid=resid)
+            except Exception as e:
+                self.post("cal_log", text="%s" % e)
+
+        self.run_bg(work)
 
     # ------------------------------------------------------------------
     # 线程 → UI 消息泵 / worker thread → UI pump
@@ -3201,6 +3811,51 @@ class App(tk.Tk):
             self._after_connect()
         elif kind == "disconnected":
             self._after_disconnect()
+        elif kind == "cal_log":
+            # ⚠ 框可能已经关了 —— 后台线程还在跑, 消息晚一步回来就会打在
+            #   已销毁的 Text 上 (Tcl 报 invalid command name)。这里挡一道。
+            if self._cal_log and self._cal_win is not None:
+                self._cal_log(kw["text"])
+        elif kind == "cal_servo_vals":
+            self._fill_cal(kw.get("vals"))
+        elif kind == "cal_imu_info":
+            chip, has = kw.get("chip") or "", kw.get("has")
+            if kw.get("err"):
+                for lbl in (getattr(self, "lbl_cal_chip", None),
+                            getattr(self, "lbl_mag_chip", None)):
+                    if lbl is not None:
+                        try:
+                            lbl.configure(text=tr("cal_chip_unknown"))
+                        except Exception:
+                            pass
+                return
+            txt = tr("cal_chip_nomag") if not has else tr("cal_chip_mag")
+            for lbl in (getattr(self, "lbl_cal_chip", None),
+                        getattr(self, "lbl_mag_chip", None)):
+                if lbl is not None:
+                    try:
+                        lbl.configure(text=(chip + " · " + txt) if chip else txt)
+                    except Exception:
+                        pass
+            if hasattr(self, "btn_mag_start"):
+                try:
+                    self.btn_mag_start.configure(state="normal" if has else "disabled")
+                    if not has:
+                        self.var_mag_stat.set(tr("cal_mag_none"))
+                except Exception:
+                    pass
+        elif kind == "cal_mag_begin":
+            self._cal_poll = True
+            if self.var_mag_stat.get() != tr("cal_mag_none"):
+                self.var_mag_stat.set(tr("cal_mag_count", n=0))
+            self._mag_poll()
+        elif kind == "cal_mag_stat":
+            if self.var_mag_stat.get() != tr("cal_mag_none"):
+                self.var_mag_stat.set(tr("cal_mag_count", n=kw.get("count", 0)))
+        elif kind == "cal_mag_done":
+            r = kw.get("resid")
+            self.var_mag_stat.set(
+                tr("cal_mag_resid_none") if r is None else tr("cal_mag_resid", r=r))
         elif kind == "lost":
             self._on_link_lost()
         elif kind == "dog_read":

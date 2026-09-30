@@ -742,13 +742,22 @@ LANG = {
         "cal_mag": "地磁校准",
         "close": "关闭",
         "cal_ch": "通道",
+        # 舵机通道名 (HIP 髋 = 大腿, KNEE 膝 = 小腿)
+        "ch_lf_hip": "左前大腿",
+        "ch_lf_knee": "左前小腿",
+        "ch_lh_hip": "左后大腿",
+        "ch_lh_knee": "左后小腿",
+        "ch_rf_hip": "右前大腿",
+        "ch_rf_knee": "右前小腿",
+        "ch_rh_hip": "右后大腿",
+        "ch_rh_knee": "右后小腿",
         "cal_joint": "关节",
         "cal_point": "基准角",
         "cal_actual": "实际角度",
         "cal_step_hint": "(↑↓ 微调, 步长 1)",
         "cal_set": "设置",
         "cal_set_ok": "已设置 {ch} 的 {p}° 基准角 → {deg:.1f}°",
-        "cal_range": "角度要在 0~180 之间",
+        "cal_range": "角度要在 {lo}~{hi} 之间",
         "cal_start": "开始校准",
         "cal_bad_angle": "试转角度不是数字",
         "cal_read_n": "已读取 {n} 个标定点, 各框已填上板子当前的值",
@@ -773,6 +782,9 @@ LANG = {
             "采够样本再 [结束并拟合]。\n"
             "只在一个平面里转是不够的 —— 椭球拟合要三个方向的极值都采到。",
         "cal_mag_start": "开始采集",
+        "mag_dir_px": "+X", "mag_dir_nx": "-X", "mag_dir_py": "+Y",
+        "mag_dir_ny": "-Y", "mag_dir_pz": "+Z", "mag_dir_nz": "-Z",
+        "mag_cover_wait": "采到 30 个样本后显示方向进度",
         "cal_mag_finish": "结束并拟合",
         "cal_mag_started": "已开始采集 —— 现在慢慢转动狗",
         "cal_mag_count": "已采样本: {n}",
@@ -1009,13 +1021,21 @@ LANG = {
         "cal_mag": "Magnetometer",
         "close": "Close",
         "cal_ch": "Channel",
+        "ch_lf_hip": "LF thigh",
+        "ch_lf_knee": "LF shin",
+        "ch_lh_hip": "LH thigh",
+        "ch_lh_knee": "LH shin",
+        "ch_rf_hip": "RF thigh",
+        "ch_rf_knee": "RF shin",
+        "ch_rh_hip": "RH thigh",
+        "ch_rh_knee": "RH shin",
         "cal_joint": "Joint",
         "cal_point": "Reference",
         "cal_actual": "Actual angle",
         "cal_step_hint": "(\u2191\u2193 to nudge by 1)",
         "cal_set": "Set",
         "cal_set_ok": "Set {ch} {p}\u00b0 reference \u2192 {deg:.1f}\u00b0",
-        "cal_range": "Angle must be between 0 and 180",
+        "cal_range": "Angle must be between {lo} and {hi}",
         "cal_start": "Start",
         "cal_bad_angle": "Test angle is not a number",
         "cal_read_n": "Read {n} calibration points into the fields",
@@ -1041,6 +1061,9 @@ LANG = {
             "One plane is not enough — the ellipsoid fit needs extremes on all "
             "three axes.",
         "cal_mag_start": "Start",
+        "mag_dir_px": "+X", "mag_dir_nx": "-X", "mag_dir_py": "+Y",
+        "mag_dir_ny": "-Y", "mag_dir_pz": "+Z", "mag_dir_nz": "-Z",
+        "mag_cover_wait": "Direction progress appears after 30 samples",
         "cal_mag_finish": "Finish & fit",
         "cal_mag_started": "Collecting — rotate the dog slowly now",
         "cal_mag_count": "Samples: {n}",
@@ -1913,8 +1936,24 @@ def dog_write_params(sm, vals, section):
 SERVO_CH_NAMES = ("LF_HIP", "LF_KNEE", "LH_HIP", "LH_KNEE",
                   "RF_HIP", "RF_KNEE", "RH_HIP", "RH_KNEE")
 
+
+def _servo_ch_label(i):
+    """通道显示名 —— "0  左前大腿" (编号 + 名称), 表格和下拉共用一份。
+
+    名称的 key 是 "ch_" + SERVO_CH_NAMES[i].lower(), 所以加通道只需在这张
+    L10N 表里补一条, 不用再动别处。
+    """
+    return "%d  %s" % (i, tr("ch_" + SERVO_CH_NAMES[i].lower()))
+
 # 出厂标定 = 恒等映射 (0→0, 90→90, 180→180)。见 servo_driver.c 的 cal_load_from_nvs()。
 SERVO_CAL_DEFAULT = (0.0, 90.0, 180.0)
+
+# 舵机行程 —— 校准参考角允许落在这一段里, 跟着固件 servo_driver.h 的 SERVO_MODEL 走:
+#   SERVO_MODEL_270 -> -35 ~ 215   (当前默认, 90° 对准舵机中位)
+#   SERVO_MODEL_180 ->   0 ~ 180
+# 固件那边 cal_point() **不查**角度 (超了只被脉宽钳位 —— 存得下但转不动),
+# 所以这道范围拦在工具侧, 免得标定表里躺着一个板子根本走不到的值。
+SERVO_DEG_MIN, SERVO_DEG_MAX = -35.0, 215.0
 
 
 def servo_read_cal(sm):
@@ -2016,22 +2055,34 @@ def mag_cal_start(sm):
         #   界面却会报"标定完成"。实测踩到过: 板上 is_ready()=False,
         #   而三个校准入口没有一个会先把它叫起来。imu_init 是幂等的。
         "i.init(0, 14, 21, 0x68)" + chr(10) +
-        "i.mag_cal_start()" + chr(10), timeout=6.0)
+        # ⚠ 固件的名字是 start_mag_cal / finish_mag_cal —— 动作词在前。
+        #   别照着中间那个 mag_cal_collect 去类推, "mag_cal_start" 这个名字不存在。
+        "i.start_mag_cal()" + chr(10), timeout=6.0)
     return (out or "") + (err or "")
 
 
 def mag_cal_collect(sm):
-    """取一次采集进度。返回 (ok, count, 板子原始输出)。
+    """取一次采集进度。返回 (ok, count, dirs, 板子原始输出)。
 
-    固件的 mag_cal_collect() 回一个 11 元组:
-        (ok, count, rx,ry,rz, mnx,mxx, mny,mxy, mnz,mxz)
-    中间那 9 个是椭球拟合用的量, 这里只在最后拟合时要, 所以只取前两个。
+    dirs = 六方向覆盖 (0~1, 顺序 +X -X +Y -Y +Z -Z), 由**固件**用已采样本现拟合
+    算出来 (mag_cal_preview); 样本不到 30 个时还没法算, 是 None。
+
+    ⚠ 六方向进度**必须由固件算**。上头只能拿到各轴 min/max, 拿它去比就只能将
+      "最大的那个极值"当分母 —— 于是最大的一项永远是 100%, 其余永远追不上
+      (往某方向转, 分母跟着一起涨), 用户的进度条就卡在 37% 不动了。
+      球面极值是 **球心 ± 半径**, 而这两个量只有拟合知道。
+
+    固件的 mag_cal_collect() 还回一堆位置量 (11 元组里的 rx/ry/rz 和 mn/mx),
+    这里不用 —— 比不上现拟合的 dirs 准。
     """
     out, err = sm.raw_exec(
         "import bpuppy_imu as i" + chr(10) +
         "r = i.mag_cal_collect()" + chr(10) +
-        "print('MC %d %d' % (1 if r[0] else 0, r[1]))" + chr(10), timeout=5.0)
-    ok, count = False, 0
+        "print('MC %d %d' % (1 if r[0] else 0, r[1]))" + chr(10) +
+        "c = i.mag_cal_preview()" + chr(10) +
+        "print('CV ' + ('-' if c is None else ' '.join('%.3f' % v for v in c)))" + chr(10),
+        timeout=8.0)                      # preview 里有一次 9x9 现拟合, 给宽点
+    ok, count, dirs = False, 0, None
     for line in (out or "").splitlines():
         line = line.strip()
         if line.startswith("MC "):
@@ -2040,14 +2091,26 @@ def mag_cal_collect(sm):
                 ok, count = (a == "1"), int(float(b))
             except ValueError:
                 pass
-    return ok, count, (out or "") + (err or "")
+        elif line.startswith("CV "):
+            body = line[3:].strip()
+            if body != "-":
+                try:
+                    dirs = tuple(float(v) for v in body.split())
+                except ValueError:
+                    pass
+    return ok, count, dirs, (out or "") + (err or "")
+
+
+# 六方向的显示顺序 —— 跟固件 mag_cal_preview() 的返回顺序一一对应。
+MAG_DIR_KEYS = ("mag_dir_px", "mag_dir_nx", "mag_dir_py",
+                "mag_dir_ny", "mag_dir_pz", "mag_dir_nz")
 
 
 def mag_cal_finish(sm):
     """结束并拟合。返回 (残差, 板子原始输出)。"""
     out, err = sm.raw_exec(
         "import bpuppy_imu as i" + chr(10) +
-        "print('RES %.4f' % i.mag_cal_finish())" + chr(10), timeout=20.0)
+        "print('RES %.4f' % i.finish_mag_cal())" + chr(10), timeout=20.0)
     resid = None
     for line in (out or "").splitlines():
         line = line.strip()
@@ -2390,22 +2453,20 @@ class App(tk.Tk):
     # UI 构建 / build UI
     # ------------------------------------------------------------------
     def _setup_geometry(self):
-        """按**工作区**定窗口大小与位置 (不写死)。
+        """窗口以**最小尺寸**打开 —— px(900x620), 与 minsize 同一个值。
 
-        改之前是 geometry("1140x840") + minsize(980,700): 那些数字是逻辑像素,
-        在 125% 缩放的屏上变成实际 1445x1099, 而工作区只有 1020 高 —— 窗口底部
-        (状态栏和「关于」)直接出屏。而窗口尺寸**不存偏好**(_save_state 里没有),
-        所以每次启动都这样, 不是只有第一次。
+        即"拖到最小就是这么大": 启动后只能往大拖, 不会一上来就占掉大半屏。
+        尺寸**不存偏好**(_save_state 里没有), 所以每次启动都是这个大小。
 
-        现在按工作区算, 并留 8% 余量; 大屏上不无限拉伸, 仍以 px(1140x840) 封顶。
+        仍按工作区留一道保险: 屏比窗口还小时按工作区的 92% 收 (正常屏用不到)。
         """
         wa = work_area()
         if wa:
             _, _, sw, sh = wa
         else:
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w = min(px(1140), int(sw * 0.92))
-        h = min(px(840), int(sh * 0.92))
+        w = min(px(900), int(sw * 0.92))
+        h = min(px(620), int(sh * 0.92))
         x = max(0, (sw - w) // 2)
         y = max(0, int((sh - h) * 0.35))     # 略偏上, 比正中好看 (也更像原生的初始位)
         self.geometry("%dx%d+%d+%d" % (w, h, x, y))
@@ -3182,8 +3243,16 @@ class App(tk.Tk):
             b_r.pack(side="right", padx=(0, px(PAD_XS)))
             self.dog_btns[sec] = (b_r, b_w)
 
-            for key, label_key, init, unit in fields:
-                cell = ttk.Frame(rowf)
+            # 字段**每行两个** —— 限位那栏有 4 个 (髋 min/max、膝 min/max),
+            # 挤在一行会顶到右边按钮上; 折行后髋一行、膝一行, 窗口最小时也放得下。
+            box = ttk.Frame(rowf)
+            box.pack(side="left", fill="x")
+            line = None
+            for i, (key, label_key, init, unit) in enumerate(fields):
+                if i % 2 == 0:
+                    line = ttk.Frame(box)
+                    line.pack(fill="x")
+                cell = ttk.Frame(line)
                 cell.pack(side="left", padx=(0, px(20)))
                 ttk.Label(cell, text="%s (%s)" % (tr(label_key),
                                                   tr("dog_" + unit))).pack(
@@ -3390,12 +3459,17 @@ class App(tk.Tk):
         # 24 个格子同时可编辑时, 改错了根本看不出是哪一格改的。
         tbl = ttk.Frame(body)
         tbl.pack(fill="x")
+        # ★ 表头跟数据**必须同一种对齐**, 否则看着就是一列错位:
+        #   角度那三列的数据是右对齐 (anchor="e"), 表头也得贴右; 通道列的
+        #   padx 也得跟下面一致, 不然整个表头比通道名右移一个 PAD_M。
         for c, head in enumerate((tr("cal_ch"), "0°", "90°", "180°")):
             ttk.Label(tbl, text=head, font=FONT_UI_BOLD).grid(
-                row=0, column=c, padx=px(PAD_M), pady=px(PAD_XS), sticky="w")
+                row=0, column=c, pady=px(PAD_XS),
+                padx=px(PAD_XS) if c == 0 else px(PAD_M),
+                sticky="w" if c == 0 else "e")
         self.cal_cells = {}
-        for r, name in enumerate(SERVO_CH_NAMES):
-            ttk.Label(tbl, text="%d  %s" % (r, name), width=12).grid(
+        for r in range(len(SERVO_CH_NAMES)):
+            ttk.Label(tbl, text=_servo_ch_label(r), width=13).grid(
                 row=r + 1, column=0, sticky="w", padx=px(PAD_XS))
             for p in range(3):
                 lab = ttk.Label(tbl, text="—", width=9, anchor="e")
@@ -3415,7 +3489,7 @@ class App(tk.Tk):
         # 不然"第 3 个通道是哪个"还得靠数
         self.cb_cal_ch = ttk.Combobox(
             r1, state="readonly", width=15,
-            values=["%d  %s" % (i, n) for i, n in enumerate(SERVO_CH_NAMES)])
+            values=[_servo_ch_label(i) for i in range(len(SERVO_CH_NAMES))])
         self.cb_cal_ch.current(0)
         self.cb_cal_ch.pack(side="left")
         self.cb_cal_ch.bind("<<ComboboxSelected>>", lambda _e: self._cal_pick())
@@ -3470,7 +3544,7 @@ class App(tk.Tk):
             v = float((self.var_cal_val.get() or "0").strip())
         except ValueError:
             v = 0.0
-        v = min(180.0, max(0.0, v + d))
+        v = min(SERVO_DEG_MAX, max(SERVO_DEG_MIN, v + d))
         self.var_cal_val.set("%.1f" % v)
         return "break"          # 别让 Entry 再处理这个键, 否则光标会跳
 
@@ -3509,8 +3583,10 @@ class App(tk.Tk):
         except ValueError:
             messagebox.showwarning(APP_NAME, tr("cal_bad_angle"))
             return
-        if not 0.0 <= deg <= 180.0:
-            messagebox.showwarning(APP_NAME, tr("cal_range"))
+        if not SERVO_DEG_MIN <= deg <= SERVO_DEG_MAX:
+            messagebox.showwarning(APP_NAME, tr("cal_range",
+                                                lo=int(SERVO_DEG_MIN),
+                                                hi=int(SERVO_DEG_MAX)))
             return
 
         def work():
@@ -3519,7 +3595,7 @@ class App(tk.Tk):
                 vals, _raw = servo_read_cal(self.sm)     # 写完把表刷新一遍
                 self.post("cal_servo_vals", vals=vals)
                 self.post("status", text=tr("cal_set_ok",
-                                            ch=SERVO_CH_NAMES[ch],
+                                            ch=_servo_ch_label(ch),
                                             p=p * 90, deg=deg))
             except Exception as e:
                 self.post("msgbox_err", text="%s" % e)
@@ -3605,6 +3681,17 @@ class App(tk.Tk):
         ttk.Label(row, textvariable=self.var_mag_stat,
                   foreground=C_TEXT).pack(side="right")
 
+        # ---- 六方向覆盖进度 ----
+        # 椭球拟合要的是**各方向**都有样本 —— 光看样本数没用: 停在原地转, 采一万个
+        # 也拟合不出来 (固件还会把方向重复的点直接丢掉)。把六个方向各自的进度画出来,
+        # 用户就知道该往哪边转、还差多少。
+        self.cv_mag = tk.Canvas(body, height=px(80), highlightthickness=0,
+                                bg=C_FIELD)
+        self.cv_mag.pack(fill="x", pady=(px(PAD_S), 0))
+        # 宽度要等 pack 完才知道 (布局前 winfo_width 是 1), 所以让 <Configure> 触发
+        self.cv_mag.bind("<Configure>", lambda _e: self._mag_draw())
+        self._mag_cover = None
+
         self.cal_txt = self._cal_out(body)
         self._wire_cal_log(self.cal_txt)
         self.btn_mag_start, self.btn_mag_fin = self._cal_footer_ret(body, (
@@ -3648,6 +3735,52 @@ class App(tk.Tk):
 
         self.run_bg(work)
 
+    def _mag_draw(self):
+        """画六方向进度 —— 两列三行, 每行一条进度条 + 百分比。
+
+        宽度得等 pack 完才知道 (布局前 winfo_width 是 1), 所以由 <Configure>
+        触发一次; 之后采集每轮 _mag_poll 回来也会调。
+        """
+        cv = getattr(self, "cv_mag", None)
+        if cv is None:
+            return
+        try:
+            w = cv.winfo_width()
+        except Exception:
+            return
+        if w <= 1:
+            return
+
+        cv.delete("all")
+        dirs = getattr(self, "_mag_cover", None)
+        if not dirs:
+            # 固件要满 30 个样本才拟合得出方向覆盖 (mag_cal_preview) —— 在那之前
+            # 进度条是空的, 写一句话, 免得看着像界面坏了
+            cv.create_text(w // 2, px(38), text=tr("mag_cover_wait"),
+                           fill=C_MUTED, font=FONT_SMALL)
+            return
+
+        gap = px(16)
+        col_w = max(px(120), (w - gap) // 2)
+        line_h = px(26)
+        for i, key in enumerate(MAG_DIR_KEYS):
+            col, row = divmod(i, 3)          # 0,1,2 左列 / 3,4,5 右列
+            x0 = col * (col_w + gap)
+            y0 = row * line_h + px(4)
+            frac = dirs[i] if dirs else 0.0
+
+            cv.create_text(x0, y0 + px(8), text=tr(key), anchor="w",
+                           fill=C_TEXT, font=FONT_SMALL)
+            bx = x0 + px(26)
+            bw = max(px(24), col_w - px(26) - px(42))
+            cv.create_rectangle(bx, y0 + px(2), bx + bw, y0 + px(14),
+                                fill=C_ROW_ALT, outline=C_BORDER)
+            if frac > 0.0:
+                cv.create_rectangle(bx, y0 + px(2), bx + bw * frac, y0 + px(14),
+                                    fill=C_ACCENT, outline="")
+            cv.create_text(x0 + col_w, y0 + px(8), text="%d%%" % round(frac * 100),
+                           anchor="e", fill=C_TEXT, font=FONT_SMALL)
+
     def _mag_poll(self):
         """采集期间定时问一次进度。**只在采集开着的时候跑** —— 每 700ms 一次
         raw_exec, 一直跑着会平白占着串口。"""
@@ -3656,8 +3789,8 @@ class App(tk.Tk):
 
         def work():
             try:
-                ok, cnt, _raw = mag_cal_collect(self.sm)
-                self.post("cal_mag_stat", count=cnt, ok=ok)
+                ok, cnt, dirs, _raw = mag_cal_collect(self.sm)
+                self.post("cal_mag_stat", count=cnt, ok=ok, cover=dirs)
             except Exception:
                 pass
 
@@ -3948,12 +4081,16 @@ class App(tk.Tk):
                     pass
         elif kind == "cal_mag_begin":
             self._cal_poll = True
+            self._mag_cover = None
+            self._mag_draw()
             if self.var_mag_stat.get() != tr("cal_mag_none"):
                 self.var_mag_stat.set(tr("cal_mag_count", n=0))
             self._mag_poll()
         elif kind == "cal_mag_stat":
             if self.var_mag_stat.get() != tr("cal_mag_none"):
                 self.var_mag_stat.set(tr("cal_mag_count", n=kw.get("count", 0)))
+            self._mag_cover = kw.get("cover")
+            self._mag_draw()
         elif kind == "cal_mag_done":
             r = kw.get("resid")
             self.var_mag_stat.set(

@@ -1,14 +1,7 @@
 # PyInstaller 产物 —— 用 README 里的命令自己打, 不入库
 # (exe 约 34MB, 且是构建产物; 打包命令和踩坑说明都在 开发说明.md 里)
-#
-# 发布走 **Releases 附件**(不占 git 历史) —— 别把 exe 提交进仓库。
-#   打包: python -m PyInstaller bTool.spec --noconfirm
-#   发布: python release_upload.py      (或双击 release.bat)
-#   用户从 releases/latest/download/bTool.exe 下载。
-# ⚠ 建 Release 时**必须带 make_latest** —— 网页上手建的 release 常常只有 tag,
-#   标题和说明是空的, 而且 **/releases/latest 不一定认它**: 实测 v1.1.0 明明比
-#   v1.0.0 新, latest 却仍指着 v1.0.0, README 的下载链接就还在发旧包。
-#   release_upload.py 里已经带上了, 并会在结束时复查 latest 指向哪。
+# 发布走 **Releases 附件**(不占 git 历史): 传 dist/bTool.exe 到 vX.Y.Z, 用户从
+# releases/latest/download/bTool.exe 下载 —— 别把 exe 提交进仓库。
 build/
 dist/
 *.spec

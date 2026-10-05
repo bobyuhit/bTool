@@ -989,6 +989,7 @@ LANG = {
                        "   只想更新程序时, 取消勾选下面的「先擦除」, 直接烧写即可。"),
         "erase_first": "先擦除整片 Flash",
         "erase_and_flash": "擦除并烧写",
+        "flash_start": "开始烧写",
         "flash_log": "烧写日志:",
         "idle": "等待操作",
 
@@ -1269,6 +1270,7 @@ LANG = {
                        "unchecked and flash directly."),
         "erase_first": "Erase whole flash first",
         "erase_and_flash": "Erase & Flash",
+        "flash_start": "Flash",
         "flash_log": "Flash log:",
         "idle": "Idle",
 
@@ -3177,10 +3179,18 @@ class App(tk.Tk):
         ttk.Checkbutton(run, text=tr("erase_first"),
                         variable=self.var_erase).pack(side="left")
         # ★ 烧写是本页的**主操作** -> 用实底主按钮, 跟一层次要按钮拉开
+        # ★ (2026-10-05) 按钮文字跟着「先擦除」勾选走 —— 名字原样沿用 Arduino
+        #   的 "Erase and Flash", 但没勾时它**就是**一个普通烧写: 固定文案
+        #   顶着"擦除"二字, 用户会以为点下去一定会擦 (实际不会), 和文档
+        #   「没勾擦除时它就是开始烧写」也对不上。
+        #   trace 挂在 var_erase 上, _restore_state 恢复勾选状态 / 切语言重建
+        #   界面后的 set() 都会触发, 文字自动同步, 不需要另写。
         self.btn_flash = ttk.Button(run, text=tr("erase_and_flash"),
                                     style="AccentPage.TButton",
                                     command=self.on_flash)
         self.btn_flash.pack(side="right")
+        self.var_erase.trace_add("write", lambda *_: self._sync_flash_btn())
+        self._sync_flash_btn()
 
         # 烧写进度 —— 左边标明这是什么, 中间进度条, 右边百分比。
         # (原来只有一条光秃秃的进度条 + 下面一行"等待操作", 没头没尾,
@@ -5539,6 +5549,17 @@ class App(tk.Tk):
                         log(tr("fl_reopen_fail", msg=e))
 
         self.run_bg(work)
+
+    def _sync_flash_btn(self):
+        """烧写按钮的文字随「先擦除整片 Flash」勾选状态切换。
+
+        勾着 = 这次真的会**整片擦除** (擦除并烧写); 没勾 = 普通烧写 (开始烧写)。
+        文字不跟状态走的话, 没勾时按钮也顶着"擦除"二字 —— 而那正是最容易
+        让人以为"点一下标定就没了"的地方 (参见文档里那句按号入座的说明)。
+        """
+        self.btn_flash.configure(
+            text=tr("erase_and_flash") if self.var_erase.get()
+            else tr("flash_start"))
 
     def on_flash(self):
         if esptool is None:

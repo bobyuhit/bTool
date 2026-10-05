@@ -243,6 +243,18 @@ C_BADGE_OFF    = "#DF7365"   #   配柔和的红叉, 一眼就是"没连上" (C_
 _ROUND_IMGS = []      # ★★ 必须留引用: PhotoImage 被 GC 掉, Tk 那边的图像就没了,
                       #    渲染出来是**纯黑块** (实测踩过)。别删这个列表。
 
+# ---- 渲染结果缓存 ----
+# ★ (2026-10-05 加) 上面这些图都是**纯函数产物**: 同一组 (尺寸/图形/颜色)
+#   永远得到同样的 PPM 字节, 没有任何随时间变化的输入。在此之前每次都要重算
+#   —— 而「切语言」的实现是销毁整个界面再重建 (_switch_lang), 于是同一批图
+#   每次切语言都重新渲染一遍: 光 ic_dog 一张就要 2~6 秒 (200% 缩放), 整个
+#   界面 20 次调用要 20 多秒, 这就是"切语言要等很久"的直接原因。
+#   缓存后: 首次启动付一次渲染费 (已顺带优化算法, 见 _shape_cov), 切语言
+#   全部命中, 只花重建控件的零点几秒。
+# _ICONS / _ICON_STROKE 都是导入后不再变的静态表, 所以缓存不存在"过期"问题。
+_ICON_CACHE = {}      # (n, name, fg, bg, ss, th) -> PPM bytes
+_RR_CACHE = {}        # (w, h, r, fill, border, outside, ss, chevron, bw, mark) -> PPM bytes
+
 
 def _seg_dist(px, py, ax, ay, bx, by):
     """点 (px,py) 到线段 AB 的距离 —— 画下拉箭头的两条斜线用。"""
@@ -396,6 +408,126 @@ def _icon_hit(x, y, box, name, th):
     return False
 
 
+def _shape_cov(name, box, th, ss, x_lo, y_lo, x_hi, y_hi, bounds=None):
+    """线描图标 → 0/1 覆盖率栅格 (ss 倍分辨率), 只覆盖像素闭区间
+    [x_lo..x_hi] × [y_lo..y_hi] (全部为整数像素坐标)。
+
+    bounds —— 可选 (x0, y0, x1, y1): 采样点必须落在这个范围里才算命中
+    (复刻 _mark_hit 的范围前置检查)。⚠ 主渲染路径 (_icon_ppm) **不传**它:
+      _icon_hit 本来就没这个检查, 传了反而和旧输出不一致。mark 路径必须传
+      mk_box —— 否则图形的笔画会"伸出" box 边界, 把边界外那一行采样点也
+      算上 (实测差异: 圆按钮底边一行像素, 12 个字节)。
+
+    返回 (cov, gwl): gwl = 栅格行宽 (格数); 格 (gx, gy) 的采样点为
+        (x_lo + gx // ss + (gx % ss + 0.5) / ss, y_lo + gy // ss + (gy % ss + 0.5) / ss)
+    —— 与旧渲染的 `x + (i + 0.5) / ss` 是**同一个算式** (只是把 x 拆成
+    x_lo + 像素偏移), 所以对任何 ss 都逐位一致。
+
+    ★★ 为什么要有这个函数 (2026-10-05):
+      旧渲染是"每个像素挨个问**全部**图元", 复杂度 = 全图像素 × ss² × 图元数。
+      ic_dog 有两条密采样折线 (合计 50+ 段), 200% 缩放下单张要 2~6 秒 ——
+      而其中绝大多数判定是白算的: 一个采样点旁边的笔画通常只有 1~2 段。
+      这里反过来, **每个图元只扫自己 AABB 覆盖的那一小块窗口**, 不相干的
+      像素根本不去碰。实测 ic_dog 单张 2.1s → 0.04s (48x), 输出与旧算法
+      **逐字节一致** (回归脚本比对过全部真实调用组合)。
+
+    ⚠ 窗口边界一律**往外多扫** (截断取整再各留 1 像素): 多扫的格子会被谓词
+      本身滤掉, 只慢不错; 漏扫才会造成像素差异 —— 宁可保守。
+    """
+    gwl = (x_hi - x_lo + 1) * ss
+    gh = (y_hi - y_lo + 1) * ss
+    cov = bytearray(gwl * gh)
+    prims = _ICONS.get(name)
+    x0, y0, x1, y1 = box
+    W, H = x1 - x0, y1 - y0
+    if not prims or W <= 0 or H <= 0 or gwl <= 0 or gh <= 0:
+        return cov, gwl
+
+    sx_of = [x_lo + gx // ss + (gx % ss + 0.5) / ss for gx in range(gwl)]
+    sy_of = [y_lo + gy // ss + (gy % ss + 0.5) / ss for gy in range(gh)]
+
+    def scan(ax0, ay0, ax1, ay1, hit):
+        """扫 [ax0..ax1]×[ay0..ay1] (像素域, 已含 th 余量) 内的栅格, 命中置 1。"""
+        if ax1 < ax0 or ay1 < ay0:
+            return                                     # 窗口空 (圆心/半径退化)
+        gx0 = (max(x_lo, int(ax0) - 1) - x_lo) * ss
+        gx1 = (min(x_hi, int(ax1) + 1) - x_lo) * ss + ss - 1
+        gy0 = (max(y_lo, int(ay0) - 1) - y_lo) * ss
+        gy1 = (min(y_hi, int(ay1) + 1) - y_lo) * ss + ss - 1
+        if gx1 < gx0 or gy1 < gy0:                     # 窗口整个在区域外
+            return
+        for gy in range(gy0, gy1 + 1):
+            sy = sy_of[gy]
+            row = gy * gwl
+            for gx in range(gx0, gx1 + 1):
+                idx = row + gx
+                if cov[idx]:
+                    continue
+                sx = sx_of[gx]
+                if bounds is not None and not (bounds[0] <= sx <= bounds[2]
+                                               and bounds[1] <= sy <= bounds[3]):
+                    continue
+                if hit(sx, sy):
+                    cov[idx] = 1
+
+    # 各分支的判定谓词与 _icon_hit 逐字相同 (同一套浮点算式 + 同一套比较),
+    # 保证新旧输出逐位一致。poly 按**段**拆 —— 整条折线一个 AABB 几乎占满
+    # 全图, 不提速 (实测过)。
+    for st in prims:
+        k = st[0]
+        a, b = x0 + st[1] * W, y0 + st[2] * H
+        if k == "line":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            scan(min(a, c) - th, min(b, d) - th, max(a, c) + th, max(b, d) + th,
+                 lambda px, py, a=a, b=b, c=c, d=d:
+                 _seg_dist(px, py, a, b, c, d) <= th)
+        elif k == "poly":
+            np_ = (len(st) - 1) // 2
+            qx = [x0 + st[1 + 2 * i] * W for i in range(np_)]
+            qy = [y0 + st[2 + 2 * i] * H for i in range(np_)]
+            for i in range(np_ - 1):
+                ax, ay, bx, by = qx[i], qy[i], qx[i + 1], qy[i + 1]
+                scan(min(ax, bx) - th, min(ay, by) - th,
+                     max(ax, bx) + th, max(ay, by) + th,
+                     lambda px, py, ax=ax, ay=ay, bx=bx, by=by:
+                     _seg_dist(px, py, ax, ay, bx, by) <= th)
+        elif k == "rect":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            scan(min(a, c) - th, min(b, d) - th, max(a, c) + th, max(b, d) + th,
+                 lambda px, py, a=a, b=b, c=c, d=d:
+                 a - th <= px <= c + th and b - th <= py <= d + th
+                 and not (a + th <= px <= c - th and b + th <= py <= d - th))
+        elif k == "box":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            scan(min(a, c), min(b, d), max(a, c), max(b, d),
+                 lambda px, py, a=a, b=b, c=c, d=d:
+                 a <= px <= c and b <= py <= d)
+        elif k == "disc":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            cxx, cyy = (a + c) / 2.0, (b + d) / 2.0
+            rad = min(c - a, d - b) / 2.0
+            scan(cxx - rad, cyy - rad, cxx + rad, cyy + rad,
+                 lambda px, py, cxx=cxx, cyy=cyy, rad=rad:
+                 ((px - cxx) ** 2 + (py - cyy) ** 2) ** 0.5 <= rad)
+        elif k == "oval":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            cx2, cy2 = (a + c) / 2.0, (b + d) / 2.0
+            rx2, ry2 = (c - a) / 2.0, (d - b) / 2.0
+            if rx2 > 0 and ry2 > 0:
+                scan(cx2 - rx2, cy2 - ry2, cx2 + rx2, cy2 + ry2,
+                     lambda px, py, cx2=cx2, cy2=cy2, rx2=rx2, ry2=ry2:
+                     ((px - cx2) / rx2) ** 2 + ((py - cy2) / ry2) ** 2 <= 1.0)
+        elif k == "circle":
+            c, d = x0 + st[3] * W, y0 + st[4] * H
+            cxx, cyy = (a + c) / 2.0, (b + d) / 2.0
+            rad = min(c - a, d - b) / 2.0 - th / 2.0
+            if rad > 0:
+                scan(cxx - rad - th / 2.0, cyy - rad - th / 2.0,
+                     cxx + rad + th / 2.0, cyy + rad + th / 2.0,
+                     lambda px, py, cxx=cxx, cyy=cyy, rad=rad:
+                     abs(((px - cxx) ** 2 + (py - cyy) ** 2) ** 0.5 - rad) <= th / 2.0)
+    return cov, gwl
+
 
 # 个别图标的**笔画缩放**。默认线宽是按稀疏图形 (箭头/文件夹/终端) 定的;
 # 狗脸有三组细节 (耳/眼/鼻) 挤在 21px 里, 用默认线宽会糊成一坨色块 ——
@@ -411,28 +543,52 @@ def _icon_ppm(n, name, fg, bg, ss=4, th=None):
 
     坐标走 _ICONS 的归一化表, 所以同一个图标名在任意尺寸下都成立
     (竖栏 26px、圆按钮里 14px, 都是同一份定义)。
+
+    ★ 结果按 (n, name, fg, bg, ss, th) 缓存 (2026-10-05, 见 _ICON_CACHE):
+      切语言会重建整个界面, 同一批图会**再要一遍** —— 缓存让那一遍零成本。
     """
     # 线宽 ≈ 图标尺寸的 6.2%。个别**密集**图标再放细一档 (见 _ICON_STROKE)。
     th = th if th is not None else max(1.0, n * 0.062 * _ICON_STROKE.get(name, 1.0))
+    key = (n, name, fg, bg, ss, th)              # th 用解析后的值入键
+    got = _ICON_CACHE.get(key)
+    if got is not None:
+        return got
     box = (n * 0.12, n * 0.12, n * 0.88, n * 0.88)       # 图形占中间 76%
     fr, fgn, fb = _rgb(fg)
     br, bgn, bb = _rgb(bg)
     NL = chr(10)
     buf = bytearray(("P6" + NL + "%d %d" % (n, n) + NL + "255" + NL).encode())
+    # 先按图元扫描出 ss 倍分辨率的覆盖率栅格 (见 _shape_cov), 再逐像素 block 求和。
+    cov, gwl = _shape_cov(name, box, th, ss, 0, 0, n - 1, n - 1)
     inv = 1.0 / (ss * ss)
     for y in range(n):
+        yrow = y * ss * gwl
         for x in range(n):
+            xcol = x * ss
             hit = 0
             for j in range(ss):
-                yy = y + (j + 0.5) / ss
+                row = yrow + j * gwl
                 for i in range(ss):
-                    if _icon_hit(x + (i + 0.5) / ss, yy, box, name, th):
-                        hit += 1
+                    hit += cov[row + xcol + i]
             a = hit * inv
             buf.append(int(br + (fr - br) * a))
             buf.append(int(bgn + (fgn - bgn) * a))
             buf.append(int(bb + (fb - bb) * a))
-    return bytes(buf)
+    out = bytes(buf)
+    _ICON_CACHE[key] = out
+    return out
+
+
+def _mark_th(box):
+    """圆按钮/徽标里 mark 图形的笔画宽度 —— _mark_hit 与 _rr_ppm 共用这一处。
+
+    笔画粗细取 box **短边**的 6% —— 跟 _icon_ppm 的默认线宽同量级, 免得同一个
+    图标挂在圆按钮里和在竖栏里看着一粗一细。
+    ⚠ 这个数**调大过就回不去了**: 实拍对比过 Arduino 圆里的 ✓ / →, 它的笔画
+      只占直径的 6% 左右; 我这里一度是 9%, 放大看箭头直接糊成一个实心三角。
+    """
+    x0, y0, x1, y1 = box
+    return max(1.0, min(x1 - x0, y1 - y0) * 0.06)
 
 
 def _mark_hit(x, y, box, shape):
@@ -442,15 +598,15 @@ def _mark_hit(x, y, box, shape):
     cross / ic_flash ...) —— 圆按钮里的图形和左侧竖栏的图标因此共用同一套
     画法, 不用各写一份覆盖判定 (早先这里是 play/stop/check/cross 四个硬编码
     形状, 而且 play 是个实心三角, 视觉重量跟别处对不上)。
+
+    ⚠ (2026-10-05) 渲染路径已不走逐点判定 —— _rr_ppm 的 mark 改走 _shape_cov
+      扫描 (逐像素 gather 太慢, 见那里的说明)。这里保留为判定语义的**规范
+      实现**, 也是回归脚本的对照基准。
     """
     x0, y0, x1, y1 = box
     if not (x0 <= x <= x1 and y0 <= y <= y1):
         return False
-    # 笔画粗细取短边的 6% —— 跟 _icon_ppm 的默认线宽同量级, 免得同一个图标
-    # 挂在圆按钮里和在竖栏里看着一粗一细。
-    # ⚠ 这个数**调大过就回不去了**: 实拍对比过 Arduino 圆里的 ✓ / →, 它的笔画
-    #   只占直径的 6% 左右; 我这里一度是 9%, 放大看箭头直接糊成一个实心三角。
-    return _icon_hit(x, y, box, shape, max(1.0, min(x1 - x0, y1 - y0) * 0.06))
+    return _icon_hit(x, y, box, shape, _mark_th(box))
 
 
 def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
@@ -460,7 +616,17 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
     三层合成: 外部色 outside → 边框色 border → 填充色 fill, 各带覆盖率。
     outside 是**按钮所在容器的底色** —— 把容器色烤进四角, 就不用真透明通道
     (PPM 没有 alpha), 边缘抗锯齿也自然过渡到容器色。
+
+    ★ 结果按全部入参缓存 (2026-10-05, 见 _RR_CACHE): 切语言重建界面时这些图
+      会**再要一遍**, 缓存让那一遍零成本。fill/border/outside 过一遍 tuple()
+      是为了缓存键可哈希 (现有调用点本来就传 _rgb() 的元组, 这里只是防未来)。
     """
+    key = (w, h, r, tuple(fill), tuple(border), tuple(outside),
+           ss, chevron, bw, mark)
+    got = _RR_CACHE.get(key)
+    if got is not None:
+        return got
+
     def cov(x, y, inset):
         """像素 (x,y) 被圆角矩形覆盖的比例; inset = 形状向内缩多少像素。
 
@@ -492,10 +658,21 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
     #   为什么不单用 Combobox.downarrow 元素: 它跟圆角 field 并存时要么被 field
     #   挤掉宽度、要么取不到 arrowcolor 而根本不画 (两种都实测过, 都没出来)。
     #   画进图里最稳 —— 而且整个下拉框本来就可点, 不靠那个元素响应。
+    mk_cov = mk_gwl = None
+    mk_pad = mk_px1 = mk_py1 = None
     if mark:
         mkn, _mkc, mk_pad = mark       # (形状, 颜色, 边距)
         _mk = _rgb(_mkc)
+        mk_pad = int(mk_pad)           # 栅格索引要整数像素 (现有调用方本来就传 int)
         mk_box = (mk_pad, mk_pad, w - mk_pad, h - mk_pad)
+        mk_px1, mk_py1 = mk_box[2], mk_box[3]
+        if mk_pad <= mk_px1 and mk_pad <= mk_py1:
+            # mark 图形也换成**逐段扫描** (同 _icon_ppm 的做法) —— 旧路径每个
+            # 采样点都要穿透图形的全部笔画 (_mark_hit -> _icon_hit), 圆按钮
+            # 那 6 张图里 connect/disconnect 含矩形+4 条线, 一次构建要 ~0.8s。
+            mk_cov, mk_gwl = _shape_cov(mkn, mk_box, _mark_th(mk_box), ss,
+                                        mk_pad, mk_pad, mk_px1, mk_py1,
+                                        bounds=mk_box)
     cxs = cy = cx = None
     if chevron:
         cx, cy, hw, hh, ctk, _cc = chevron
@@ -508,13 +685,13 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
                    + fill[k] * ai for k in range(3)]
             # mark: 圆里画一个图标 —— 直接画进图里, 不用字体字符
             #   (U+25B6 这类字符在部分字体下会被渲染成彩色 emoji, 不可控)
-            if mark and mk_box[0] <= x <= mk_box[2] and mk_box[1] <= y <= mk_box[3]:
+            if mk_cov is not None and mk_pad <= x <= mk_px1 and mk_pad <= y <= mk_py1:
+                base = (y - mk_pad) * ss * mk_gwl + (x - mk_pad) * ss
                 hit = 0
-                for i in range(ss):
-                    for j in range(ss):
-                        sx, sy = x + (i + 0.5) / ss, y + (j + 0.5) / ss
-                        if _mark_hit(sx, sy, mk_box, mkn):
-                            hit += 1
+                for j in range(ss):
+                    row = base + j * mk_gwl
+                    for i in range(ss):
+                        hit += mk_cov[row + i]
                 m_a = hit / (ss * ss)
                 if m_a > 0:
                     for k in range(3):
@@ -534,7 +711,9 @@ def _rr_ppm(w, h, r, fill, border, outside, ss=4, chevron=None, bw=1.0,
                         rgb[k] = rgb[k] * (1 - c_a) + _cc[k] * c_a
             for k in range(3):
                 buf.append(max(0, min(255, int(round(rgb[k])))))
-    return bytes(buf)
+    out = bytes(buf)
+    _RR_CACHE[key] = out
+    return out
 
 
 def _rgb(hexstr):
@@ -3130,6 +3309,14 @@ class App(tk.Tk):
         return {
             "repl": self.txt_term.get("1.0", "end-1c"),
             "flash_log": self.txt_flash.get("1.0", "end-1c"),
+            # ★ (2026-10-05 补) _restore_state 一开头就读 st["port"], 但字典里
+            #   某次重构后**丢了这一项** —— 于是每次切换语言都在恢复阶段
+            #   KeyError 当场崩掉: 界面已经重建好 (新语言生效), 但后面的状态
+            #   恢复 (REPL 内容 / 标题 / 本地列表 / 偏好保存) 全部跳过。
+            #   Tkinter 把回调里的异常打到 stderr, pythonw / exe 下看不见,
+            #   表现就是"切完之后有点怪"。
+            #   串口选择的真源是 self.var_port (cb_port 是工具栏上的显示框)。
+            "port": self.var_port.get(),
             "fbaud": self.cb_fbaud.get(),
             "erase": self.var_erase.get(),
             "local_dir": self.var_local.get(),

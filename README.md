@@ -35,7 +35,7 @@ ESP32-P4                            ESP8266
 
 ### 方式一：直接用 exe（推荐）
 
-**⬇ [下载 bTool.exe](../../releases/latest/download/bTool.exe)** —— 点一下就开始下载（29.0 MB）
+**⬇ [下载 bTool.exe](../../releases/latest/download/bTool.exe)** —— 点一下就开始下载（32.3 MB）
 
 （`latest` 这个链接**永远指向最新版**，不用管版本号；历史版本在 [Releases](../../releases) 页。）
 

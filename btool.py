@@ -835,7 +835,7 @@ def install_round_field(st, style, radius, outside, faces, text_el,
 
 # ---- 关于 / about ----
 # 改版本号 / 作者就改这里。
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 APP_AUTHOR = "bobyuhit"
 
 

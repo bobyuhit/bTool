@@ -4,7 +4,10 @@
 # releases/latest/download/bTool.exe 下载 —— 别把 exe 提交进仓库。
 build/
 dist/
-*.spec
+# ⚠ bTool.spec **要入库** —— 它是手改过的工程配置 (hiddenimports / excludes /
+#   图标), 不是 PyInstaller 自动生成的垃圾。先前被 *.spec 挡着, 后果是换台机器
+#   打包时踩到里面写死的绝对路径 (2026-10-06 实锤: esptool 的 stub_flasher
+#   指向原作者的 C:/Users/yutin/.../Python310/..., 换机器直接打包失败)。
 
 __pycache__/
 *.pyc

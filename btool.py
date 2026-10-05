@@ -936,6 +936,9 @@ LANG = {
         "cal_step_hint": "(↑↓ 微调, 步长 1)",
         "cal_set": "设置",
         "cal_set_ok": "已设置 {ch} 的 {p}° 基准角 → {deg:.1f}°",
+        "cal_all_90": "一键全部转到90°",
+        "cal_all_90_ask": "把所有舵机都转到90°？",
+        "cal_all_90_ok": "8 个舵机已摆到 90° (标定未改)",
         "cal_range": "角度要在 {lo}~{hi} 之间",
         "cal_start": "开始校准",
         "cal_bad_angle": "试转角度不是数字",
@@ -1215,6 +1218,9 @@ LANG = {
         "cal_step_hint": "(\u2191\u2193 to nudge by 1)",
         "cal_set": "Set",
         "cal_set_ok": "Set {ch} {p}\u00b0 reference \u2192 {deg:.1f}\u00b0",
+        "cal_all_90": "Move all to 90\u00b0",
+        "cal_all_90_ask": "Move all servos to 90\u00b0?",
+        "cal_all_90_ok": "All 8 servos moved to 90\u00b0 (calibration untouched)",
         "cal_range": "Angle must be between {lo} and {hi}",
         "cal_start": "Start",
         "cal_bad_angle": "Test angle is not a number",
@@ -2177,6 +2183,21 @@ def servo_move(sm, ch, deg):
     out, err = sm.raw_exec(
         "import bpuppy_servo as s" + chr(10) +
         "s.set_angle(%d, %.2f)" % (ch, deg) + chr(10), timeout=5.0)
+    return (out or "") + (err or "")
+
+
+def servo_all_to(sm, deg):
+    """把 8 路主舵机一次性都转到 deg。
+
+    ⚠ **只摆位置, 不写标定** —— 跟 servo_write_cal() 的区别就在这:
+      那个走 cal_point() 会写 NVS 并逐路驱动, 这个只调 set_angle()。
+      一次 raw_exec 发完 8 行而不是循环 8 次, 免得狗一节一节地抽。
+    """
+    lines = ["import bpuppy_servo as s"]
+    for ch in range(len(SERVO_CH_NAMES)):
+        lines.append("s.set_angle(%d, %.2f)" % (ch, deg))
+    lines.append("print('ALL DONE')")
+    out, err = sm.raw_exec(chr(10).join(lines), timeout=10.0)
     return (out or "") + (err or "")
 
 
@@ -3717,7 +3738,7 @@ class App(tk.Tk):
         # 底部只有「关闭」—— 没有「刷新」按钮了。
         # 表在**开框时**读一次、**每次设置后**再读一次, 两头都堵上了;
         # 手动刷新只剩"在别处改了标定想同步"这一种用场, 不值一个按钮。
-        self._cal_footer(body, ())
+        self._cal_footer(body, ((tr("cal_all_90"), self.on_cal_all_90, None),))
         self._cal_pick()
         self.on_cal_read()          # 开框自动读一次
 
@@ -3796,6 +3817,24 @@ class App(tk.Tk):
                                             p=p * 90, deg=deg))
             except Exception as e:
                 self.post("msgbox_err", text="%s" % e)
+
+        self.run_bg(work)
+
+    def on_cal_all_90(self):
+        """一键把 8 路主舵机都摆到 90°。
+
+        ⚠ 跟旁边那个「设置」按钮**不是一回事**:
+          那个走 cal_point() 会写 NVS; 这个只调 set_angle(), 标定一个字节都不动。
+          用途是"一次性看哪些关节装歪了"。
+        """
+        if not self._cal_guard():
+            return
+        if not messagebox.askyesno(APP_NAME, tr("cal_all_90_ask")):
+            return
+
+        def work():
+            servo_all_to(self.sm, 90.0)
+            self.post("status", text=tr("cal_all_90_ok"))
 
         self.run_bg(work)
 

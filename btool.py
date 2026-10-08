@@ -835,7 +835,7 @@ def install_round_field(st, style, radius, outside, faces, text_el,
 
 # ---- 关于 / about ----
 # 改版本号 / 作者就改这里。
-APP_VERSION = "1.2"
+APP_VERSION = "1.3"
 APP_AUTHOR = "bobyuhit"
 
 
@@ -919,6 +919,25 @@ LANG = {
         "cal_servo": "舵机关节校准",
         "cal_imu": "加速度计与陀螺仪校准",
         "cal_mag": "地磁校准",
+        # ---- 生产测试 (整机验机: 舵机摆动 + 姿态 + 语音) ----
+        "dog_prod": "生产测试",
+        "pt_start": "开始测试",
+        "pt_stop": "停止测试",
+        "pt_hint": "⚠ 测试期间狗会持续摆动, 请先架空或拿稳。",
+        "pt_att": "姿态",
+        "pt_voice": "语音",
+        "pt_servo": "舵机",
+        "pt_roll": "横滚", "pt_pitch": "俯仰", "pt_yaw": "偏航",
+        "pt_imu_na": "(IMU 未就绪)",
+        "pt_last": "最近指令: {name}",
+        "pt_last_none": "最近指令: —",
+        "pt_cnt": "已收到 {n} 条 · 声源角度 {a}°",
+        "pt_cnt_nosa": "已收到 {n} 条",
+        "pt_cmd_stop": "停止", "pt_cmd_fwd": "前进", "pt_cmd_back": "后退",
+        "pt_cmd_left": "左转", "pt_cmd_right": "右转", "pt_cmd_faster": "加速",
+        "pt_cmd_slower": "减速", "pt_cmd_nod": "点头", "pt_cmd_stand": "站立",
+        "pt_cmd_crouch": "蹲下", "pt_cmd_sit": "坐下", "pt_cmd_wave": "摇手",
+        "pt_cmd_play": "邀玩", "pt_cmd_volt": "播报电压",
         "close": "关闭",
         "cal_ch": "通道",
         # 舵机通道名 (HIP 髋 = 大腿, KNEE 膝 = 小腿)
@@ -961,19 +980,33 @@ LANG = {
         "cal_mag_hint":
             "⚠ 只有带磁力计的芯片 (MPU9250) 能做。\n"
             "做法: 点 [开始采集] 后, 把狗朝各个方向慢慢转, 尽量每个方向都转到,"
-            "采够样本再 [结束并拟合]。\n"
-            "只在一个平面里转是不够的 —— 椭球拟合要三个方向的极值都采到。",
+            "采满 30 个样本后 [结束并拟合] 才可用。\n"
+            "只在一个平面里转是不够的 —— 椭球拟合要三个方向的极值都采到。\n"
+            "残差判读: <0.05 良好 · 0.05~0.08 可用 · >0.08 建议重做;"
+            "拟合成功会自动写入板子 NVS, 掉电不丢。",
         "cal_mag_start": "开始采集",
         "mag_dir_px": "+X", "mag_dir_nx": "-X", "mag_dir_py": "+Y",
         "mag_dir_ny": "-Y", "mag_dir_pz": "+Z", "mag_dir_nz": "-Z",
         "mag_cover_wait": "采到 30 个样本后显示方向进度",
         "cal_mag_finish": "结束并拟合",
-        "cal_mag_started": "已开始采集 —— 现在慢慢转动狗",
-        "cal_mag_count": "已采样本: {n}",
+        "cal_mag_started": "已开始采集 —— 慢慢转动狗, 采满 30 个样本后可结束并拟合",
+        "cal_mag_count": "已采样本: {n}（建议 {t}+）",
         "cal_mag_none": "这块板子没有磁力计, 做不了",
         "cal_mag_fitting": "正在拟合 …",
-        "cal_mag_resid": "残差: {r:.4f}",
-        "cal_mag_resid_none": "拟合失败 (样本不够或分布太差)",
+        # 结果分档 —— 残差判据与固件 frozen/calib_mag.py 同值: 良好 ≤0.05; >0.08 判质量差、
+        # 建议重标。每档两行: cal_mag_resid_* 进底部输出区 (完整交代"已写入/未写入 NVS"),
+        # cal_mag_stat_* 是右上角短状态。
+        "cal_mag_resid_good": "✓ 已写入 NVS (掉电保留) —— 残差 {r:.4f}, 良好 (≤0.05)",
+        "cal_mag_resid_fair": "✓ 已写入 NVS (掉电保留) —— 残差 {r:.4f}, 可用",
+        "cal_mag_resid_poor": "⚠ 已写入 NVS (掉电保留) —— 残差 {r:.4f} 偏大 (>0.08), 建议重新校准",
+        "cal_mag_resid_fail": "✗ 未写入 —— 拟合失败 (样本不足或分布太差), 重新采集后再试",
+        "cal_mag_resid_no_reply": "✗ 未写入 —— 没读到结果 (板子没回话或固件不支持), 原始回显见上方",
+        "cal_mag_stat_good": "残差 {r:.4f} · 良好 (≤0.05) · 已写入",
+        "cal_mag_stat_fair": "残差 {r:.4f} · 可用 · 已写入",
+        "cal_mag_stat_poor": "残差 {r:.4f} · 偏大 (>0.08) · 已写入",
+        "cal_mag_stat_fail": "拟合失败 · 未写入",
+        "cal_mag_stat_no_reply": "没读到结果 · 未写入",
+        "cal_mag_ready": "样本已够 —— 现在可以 [结束并拟合]",
         "dog_read_empty": "没读到任何参数 —— 板子上有 bpuppy_motion 模块吗?",
         "dog_reject_title": "板子拒绝了参数",
         "dog_reject_body": "板子拒绝了其中一些值, 它们保持原样:\n\n{msg}",
@@ -1202,6 +1235,25 @@ LANG = {
         "cal_servo": "Servo joints",
         "cal_imu": "Accel & gyro",
         "cal_mag": "Magnetometer",
+        "dog_prod": "Production test",
+        "pt_start": "Start test",
+        "pt_stop": "Stop test",
+        "pt_hint": "⚠ The dog will keep swinging while testing — "
+                   "prop it up or hold it first.",
+        "pt_att": "Attitude",
+        "pt_voice": "Voice",
+        "pt_servo": "Servos",
+        "pt_roll": "Roll", "pt_pitch": "Pitch", "pt_yaw": "Yaw",
+        "pt_imu_na": "(IMU not ready)",
+        "pt_last": "Last command: {name}",
+        "pt_last_none": "Last command: —",
+        "pt_cnt": "{n} received · sound angle {a}°",
+        "pt_cnt_nosa": "{n} received",
+        "pt_cmd_stop": "Stop", "pt_cmd_fwd": "Fwd", "pt_cmd_back": "Back",
+        "pt_cmd_left": "Left", "pt_cmd_right": "Right", "pt_cmd_faster": "Faster",
+        "pt_cmd_slower": "Slower", "pt_cmd_nod": "Nod", "pt_cmd_stand": "Stand",
+        "pt_cmd_crouch": "Crouch", "pt_cmd_sit": "Sit", "pt_cmd_wave": "Wave",
+        "pt_cmd_play": "Play", "pt_cmd_volt": "Voltage",
         "close": "Close",
         "cal_ch": "Channel",
         "ch_lf_hip": "LF thigh",
@@ -1242,21 +1294,32 @@ LANG = {
         "cal_chip_nomag": "no magnetometer",
         "cal_mag_hint":
             "\u26a0 Needs an MPU9250 (the 6050 has no magnetometer).\n"
-            "Press [Start], then slowly rotate the dog through ALL orientations, "
-            "then [Finish & fit].\n"
+            "Press [Start], then slowly rotate the dog through ALL orientations; "
+            "[Finish & fit] unlocks after 30 samples.\n"
             "One plane is not enough — the ellipsoid fit needs extremes on all "
-            "three axes.",
+            "three axes.\n"
+            "Residual: <0.05 good · 0.05~0.08 usable · >0.08 redo. "
+            "A successful fit is saved to the board's NVS and survives power-off.",
         "cal_mag_start": "Start",
         "mag_dir_px": "+X", "mag_dir_nx": "-X", "mag_dir_py": "+Y",
         "mag_dir_ny": "-Y", "mag_dir_pz": "+Z", "mag_dir_nz": "-Z",
         "mag_cover_wait": "Direction progress appears after 30 samples",
         "cal_mag_finish": "Finish & fit",
-        "cal_mag_started": "Collecting — rotate the dog slowly now",
-        "cal_mag_count": "Samples: {n}",
+        "cal_mag_started": "Collecting — rotate the dog slowly; 30 samples unlock Finish & fit",
+        "cal_mag_count": "Samples: {n}  ({t}+ recommended)",
         "cal_mag_none": "This board has no magnetometer",
         "cal_mag_fitting": "Fitting ...",
-        "cal_mag_resid": "Residual: {r:.4f}",
-        "cal_mag_resid_none": "Fit failed (too few samples / poor spread)",
+        "cal_mag_resid_good": "✓ Saved to NVS (kept after power-off) — residual {r:.4f}, good (≤0.05)",
+        "cal_mag_resid_fair": "✓ Saved to NVS (kept after power-off) — residual {r:.4f}, OK",
+        "cal_mag_resid_poor": "⚠ Saved to NVS (kept after power-off) — residual {r:.4f} is high (>0.08); consider redoing it",
+        "cal_mag_resid_fail": "✗ Not saved — fit failed (too few samples / poor spread). Collect again.",
+        "cal_mag_resid_no_reply": "✗ Not saved — no result read (no reply, or firmware lacks the call). Raw reply above.",
+        "cal_mag_stat_good": "Residual {r:.4f} · good (≤0.05) · saved",
+        "cal_mag_stat_fair": "Residual {r:.4f} · OK · saved",
+        "cal_mag_stat_poor": "Residual {r:.4f} · high (>0.08) · saved",
+        "cal_mag_stat_fail": "Fit failed · not saved",
+        "cal_mag_stat_no_reply": "No result · not saved",
+        "cal_mag_ready": "Enough samples — [Finish & fit] is now available",
         "dog_read_empty": "No parameters came back — does the board have bpuppy_motion?",
         "dog_reject_title": "Values rejected",
         "dog_reject_body": "The board rejected some values; they keep their old ones:\n\n{msg}",
@@ -1886,7 +1949,13 @@ class SerialManager:
                 chunk = self.read_avail()
                 if chunk:
                     buf += chunk
-                    if buf.rstrip().endswith(b"\x04>"):
+                    # ★ 判据必须是"出现过 \x04>"而不是"结尾恰好是 \x04>"。
+                    #   板侧 voice 线程随时往同一个 UART 打印, 它的字节可能
+                    #   紧跟响应结束标记后面一起被读进来 —— 只要尾巴上多一个
+                    #   字节, endswith 就永远为假 → 白等满 timeout (5s)。
+                    #   \x04 是控制字节, 文本输出里不会有, 所以响应正文中
+                    #   不可能提前出现 \x04>; 出现即响应完整。
+                    if b"\x04>" in buf:
                         break
                 else:
                     time.sleep(0.01)
@@ -2307,6 +2376,29 @@ def mag_cal_collect(sm):
 MAG_DIR_KEYS = ("mag_dir_px", "mag_dir_nx", "mag_dir_py",
                 "mag_dir_ny", "mag_dir_pz", "mag_dir_nz")
 
+# 残差判据 —— 与固件 frozen/calib_mag.py 同值: 理想 ≤0.05; >0.08 判质量差、建议重标。
+# 固件那两档是"警告与否"的分界, 这里多切一刀 0.05~0.08 叫"可用" —— 让用户看到
+# 数字时知道好/坏在哪, 而不是只有一个裸残差。
+MAG_RESID_GOOD = 0.05
+MAG_RESID_WARN = 0.08
+
+# 拟合最少样本数 —— 固件 imu_finish_mag_cal() 的硬门槛 (count<30 直接返回 -1)。
+# 「结束并拟合」按钮的激活条件与它**必须一致**, 否则用户点了才发现是白点。
+MAG_MIN_SAMPLES = 30
+
+# 建议采样数 —— 与固件 frozen/calib_mag.py 的 MIN_SAMPLES 同值。30 只是"能拟合"
+# 的门槛, 到 300 拟合质量才稳 (实测: 132 个样本时残差 0.14, 主因就是量不够)。
+# 界面上的样本计数直接以它作参考显示。
+MAG_REC_SAMPLES = 300
+
+# 采集轮询周期 —— 每拍从板子取**一个**样本 (板侧无节流, 每次调用就是一次采样
+# 机会; SLV0 后台 1kHz 刷数据, 最多旧 10ms, 5Hz 取样完全接得住)。
+# 提速的关键就在这个数: 取 700ms 时, 300 个样本 210s 打底 (300×0.7), 再叠上
+# 转动/停留丢掉的去重帧, 实际要 3~5 分钟; 取 200ms 后约 1 分钟。
+# 单拍 raw_exec 往返约 60~80ms (含一次现拟合预览), 200ms 周期占用串口
+# 约三成; 万一某拍超过 200ms, _mag_busy 会自动跳过下一拍, 不会积压。
+MAG_POLL_MS = 200
+
 
 def mag_cal_finish(sm):
     """结束并拟合。返回 (残差, 板子原始输出)。"""
@@ -2322,6 +2414,159 @@ def mag_cal_finish(sm):
             except ValueError:
                 pass
     return resid, (out or "") + (err or "")
+
+
+# ======================================================================
+# 生产测试 (板侧注入: 舵机摆动线程 + 语音命令 spy)
+#
+# 设计要点:
+#   · raw REPL 的多次执行**共享主命名空间** (pyexec.c 的编译走全局 dict),
+#     所以"开始测试"注入的全局变量和后台线程, 之后的轮询执行都读得到、改得动。
+#   · 摆动跑在**板子的后台线程**里, 不占工具的轮询 —— 工具只需每 PT_POLL_MS
+#     读一拍状态。心跳 (_pt_beat) 由轮询刷新, 是"工具还活着"的唯一信号:
+#     拔线/工具崩溃 → 心跳停 → 线程 PT_WD_MS 后自停, 狗不会永远摆下去。
+#   · 语音命令**固件没有现成的"最近一条"变量** —— 只能把 voice._dispatch
+#     换成 spy (frozen/voice.py 的 _parse() 用模块级名字调用它, 替换后生效)。
+#     spy 过滤 0x100 (声源角度帧是连发的, 不过滤会把命令淹没)。
+# ======================================================================
+
+# 轮询间隔 & 看门狗窗口。⚠ 8000 与 pt_start 注入代码里的字面量必须一致 ——
+# 心跳断流超过该时间, 板侧摆动线程自己退出 (板侧代码里是写死的字面量)。
+# 窗口取 8s 而不是贴着轮询周期: 偶发一次卡顿 (点别的按钮抢串口 / USB 抖动 /
+# 一次响应等超时) 就能超过 2.5s, 摆动一停就**不会自己恢复**, 观感成了
+# "测着测着就停了"。8s 仍能保证"工具真没了狗不会永远摆"这条底线。
+PT_POLL_MS = 300
+PT_WD_MS = 8000
+
+# 语音命令码 → LANG key (与 bPuppy frozen/voice.py 的 CMD_* 一一对应; 0x3D/0x3E 未用)
+PT_CMDS = {0x30: "pt_cmd_stop", 0x31: "pt_cmd_fwd", 0x32: "pt_cmd_back",
+           0x33: "pt_cmd_left", 0x34: "pt_cmd_right", 0x35: "pt_cmd_faster",
+           0x36: "pt_cmd_slower", 0x37: "pt_cmd_nod", 0x38: "pt_cmd_stand",
+           0x39: "pt_cmd_crouch", 0x3A: "pt_cmd_sit", 0x3B: "pt_cmd_wave",
+           0x3C: "pt_cmd_play", 0x3F: "pt_cmd_volt"}
+
+
+def pt_start(sm):
+    """开始生产测试: 注入 voice spy (幂等) + 起舵机摆动线程。返回 (ok, raw)。
+
+    ok = 板子回了 'PT_OK' (整个脚本跑完)。voice 模块缺失不影响 ok ——
+    spy 段包在 try 里, 老固件照常能摆动+读姿态, 只是没有命令显示。
+    """
+    out, err = sm.raw_exec(
+        # ---- 1) voice spy: 装一次常驻; 每次开始清空计数 (本轮收到几条) ----
+        "try:" + chr(10) +
+        "    import voice as _pt_v" + chr(10) +
+        "    if not hasattr(_pt_v, '_pt_ev'):" + chr(10) +
+        "        _pt_v._pt_ev = []" + chr(10) +
+        "        _pt_orig = _pt_v._dispatch" + chr(10) +
+        "        def _pt_disp(cmd, param=0):" + chr(10) +
+        "            if cmd != 0x100:" + chr(10) +
+        "                _pt_v._pt_ev.append(cmd)" + chr(10) +
+        "                if len(_pt_v._pt_ev) > 12: del _pt_v._pt_ev[:-12]" + chr(10) +
+        "            return _pt_orig(cmd, param)" + chr(10) +
+        "        _pt_v._dispatch = _pt_disp" + chr(10) +
+        "    _pt_v._pt_ev = []" + chr(10) +
+        "except Exception:" + chr(10) +
+        "    pass" + chr(10) +
+        # ---- 2) IMU 先起起来 (按需初始化, 幂等) ----
+        "import bpuppy_imu as _pt_i" + chr(10) +
+        "_pt_i.init(0, 14, 21, 0x68)" + chr(10) +
+        # ---- 3) 停旧摆动线程 (重开测试时可能还有一只), 等它退出 ----
+        "import time, math, _thread" + chr(10) +
+        "import bpuppy_servo as _pt_s" + chr(10) +
+        "_pt_on = False" + chr(10) +
+        "time.sleep_ms(120)" + chr(10) +
+        # ---- 4) 起新线程: 90°±45° 正弦, 2s 周期; 心跳断流 8s 自动停 ----
+        "_pt_beat = time.ticks_ms()" + chr(10) +
+        "_pt_on = True" + chr(10) +
+        "def _pt_work():" + chr(10) +
+        "    _t0 = time.ticks_ms()" + chr(10) +
+        "    while _pt_on:" + chr(10) +
+        "        _now = time.ticks_ms()" + chr(10) +
+        "        if time.ticks_diff(_now, _pt_beat) > 8000: break" + chr(10) +
+        "        _a = 90.0 + 45.0 * math.sin(6.283185307 * time.ticks_diff(_now, _t0) / 2000.0)" + chr(10) +
+        "        _pt_s.group_begin()" + chr(10) +
+        "        for _c in range(8): _pt_s.group_add(_c, _a)" + chr(10) +
+        "        _pt_s.group_commit()" + chr(10) +
+        "        time.sleep_ms(20)" + chr(10) +
+        # ⚠ stack_size 是**全局默认值**, 设完必须还原 (bPuppy 易错点 12 同源)
+        "_thread.stack_size(8192)" + chr(10) +
+        "_thread.start_new_thread(_pt_work, ())" + chr(10) +
+        "_thread.stack_size(0)" + chr(10) +
+        "print('PT_OK')" + chr(10),
+        timeout=8.0)
+    raw = (out or "") + (err or "")
+    return ("PT_OK" in (out or "")), raw
+
+
+def pt_stop(sm):
+    """停止摆动 (置 _pt_on=False 即可, 线程下一拍 20ms 内退出)。
+
+    best-effort: 不等回包、不解析 —— 关窗/拔线时调用, 看门狗也会兜底。
+    """
+    out, err = sm.raw_exec("_pt_on = False" + chr(10), timeout=4.0)
+    return (out or "") + (err or "")
+
+
+def pt_read(sm):
+    """轮询一拍: 刷心跳 + 读姿态/语音。返回 dict 或 None (没解析到)。
+
+    dict: {"roll","pitch","yaw": float, "imu": bool, "cmd": int, "n": int, "sa": int}
+      cmd = 最近一条语音命令码 (-1 = 还没有); n = 本轮收到条数;
+      sa  = 声源角度 (0~180; -999 = 模块没这个变量/没收到过)
+    """
+    out, err = sm.raw_exec(
+        "import time" + chr(10) +
+        "import bpuppy_imu as _pt_i" + chr(10) +
+        # ★ 心跳: 每轮询一拍刷一次 —— 板侧摆动线程靠它判断"工具还活着"
+        "_pt_beat = time.ticks_ms()" + chr(10) +
+        "_pt_rdy = 1 if _pt_i.is_ready() else 0" + chr(10) +
+        "_pt_r = _pt_i.read_angles() if _pt_rdy else (0.0, 0.0, 0.0)" + chr(10) +
+        "_pt_lc = -1" + chr(10) +
+        "_pt_n = 0" + chr(10) +
+        "_pt_sa = -999" + chr(10) +
+        "try:" + chr(10) +
+        "    import voice as _pt_v" + chr(10) +
+        "    _pt_ev = getattr(_pt_v, '_pt_ev', None) or []" + chr(10) +
+        "    _pt_n = len(_pt_ev)" + chr(10) +
+        "    _pt_lc = _pt_ev[-1] if _pt_ev else -1" + chr(10) +
+        "    _pt_sa = getattr(_pt_v, 'SoundAngle', -999)" + chr(10) +
+        "except Exception:" + chr(10) +
+        "    pass" + chr(10) +
+        "print('PT %.1f %.1f %.1f %d %d %d %d' % "
+        "(_pt_r[0], _pt_r[1], _pt_r[2], _pt_rdy, _pt_lc, _pt_n, _pt_sa))" + chr(10) +
+        # 8 个通道的当前命令角度 (校准逆插值回 0~180 域); 读不到就只打 'SA'
+        "_pt_sv = []" + chr(10) +
+        "try:" + chr(10) +
+        "    import bpuppy_servo as _pt_sk" + chr(10) +
+        "    for _c in range(8): _pt_sv.append(_pt_sk.get_angle(_c))" + chr(10) +
+        "except Exception:" + chr(10) +
+        "    pass" + chr(10) +
+        "print('SA' + ''.join(' %.0f' % _a for _a in _pt_sv))" + chr(10),
+        timeout=5.0)
+    d = None
+    sa8 = None
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line.startswith("PT "):
+            p = line[3:].split()
+            if len(p) >= 7:
+                try:
+                    d = {"roll": float(p[0]), "pitch": float(p[1]), "yaw": float(p[2]),
+                         "imu": p[3] == "1", "cmd": int(float(p[4])),
+                         "n": int(float(p[5])), "sa": int(float(p[6]))}
+                except ValueError:
+                    d = None
+        elif line.startswith("SA "):
+            p = line[3:].split()
+            if len(p) == 8:
+                try:
+                    sa8 = [float(x) for x in p]
+                except ValueError:
+                    sa8 = None
+    if d is not None:
+        d["sa8"] = sa8            # 舵机行独立解析: 缺了不影响姿态/语音显示
+    return d
 
 
 
@@ -2626,6 +2871,9 @@ class App(tk.Tk):
         self._cal_win = None               # 当前开着的校准框 (没开是 None)
         self._cal_log = None               # 它的输出区写入口
         self._cal_poll = False             # 地磁采集的进度轮询开关
+        self._mag_busy = False             # 地磁轮询: 上一拍是否还在路上 (防积压)
+        self._pt_run = False               # 生产测试是否在跑 (控轮询链与按钮文案)
+        self._pt_busy = False              # 生产测试轮询: 上一拍是否还在路上 (防积压)
         self._last_mode_key = None         # (已连接, 是否raw) —— 变没变, 见 _sync_mode_ui
         self._drain_id = None              # UI 消息泵的定时器 id (关窗时要取消)
         self._port_timer = None            # 串口轮询的定时器 id
@@ -3493,6 +3741,47 @@ class App(tk.Tk):
             b.pack(side="left", padx=(0, px(PAD_S)))
             self.cal_btns.append(b)
 
+        # 「生产测试」一栏 —— 内容**全部开在页内** (不弹框): 按钮 + 姿态/语音
+        # 实时显示 (整机验机: 点开始 → 舵机全摆 + 页面数字刷)。按钮也收进
+        # cal_btns —— 没连板子 / 板子不是 MicroPython 时和校准按钮一样要灰。
+        lfp = ttk.Labelframe(p, text=tr("dog_prod"),
+                             padding=(px(PAD_S), px(PAD_XS)))
+        lfp.pack(fill="x", padx=px(PAD_S), pady=(px(PAD_XS), 0))
+        rowp = ttk.Frame(lfp)
+        rowp.pack(fill="x")
+        bp = ttk.Button(rowp, text=tr("pt_start"), width=22,
+                        command=self._pt_toggle)
+        bp.pack(side="left", padx=(0, px(PAD_S)))
+        self.btn_pt_run = bp
+        self.cal_btns.append(bp)
+        ttk.Label(rowp, text=tr("pt_hint"), foreground=C_WARN).pack(side="left")
+
+        # 姿态行 / 语音行 —— 常驻显示; 未开始时是 "—"
+        # 姿态与舵机角度**并排同一行**: 设置页高度余量很小 (实测仅 2 逻辑像素),
+        # 单开一行会把底部挤出可视区。
+        self.var_pt_att = tk.StringVar(value="—")
+        self.var_pt_servo = tk.StringVar(value="—")
+        ra = ttk.Frame(lfp)
+        ra.pack(fill="x", pady=(px(PAD_XS), 0))
+        ttk.Label(ra, text=tr("pt_att"), width=6, anchor="w",
+                  foreground=C_TEXT).pack(side="left")
+        ttk.Label(ra, textvariable=self.var_pt_att, font=FONT_MONO,
+                  foreground=C_TEXT_HI).pack(side="left")
+        ttk.Label(ra, text=tr("pt_servo"), width=6, anchor="w",
+                  foreground=C_TEXT).pack(side="left", padx=(px(PAD_M), 0))
+        ttk.Label(ra, textvariable=self.var_pt_servo, font=FONT_MONO,
+                  foreground=C_TEXT_HI).pack(side="left")
+        self.var_pt_last = tk.StringVar(value=tr("pt_last_none"))
+        self.var_pt_cnt = tk.StringVar(value="")
+        rv = ttk.Frame(lfp)
+        rv.pack(fill="x")
+        ttk.Label(rv, text=tr("pt_voice"), width=6, anchor="w",
+                  foreground=C_TEXT).pack(side="left")
+        ttk.Label(rv, textvariable=self.var_pt_last, font=FONT_MONO,
+                  foreground=C_TEXT_HI).pack(side="left")
+        ttk.Label(rv, textvariable=self.var_pt_cnt,
+                  foreground=C_TEXT).pack(side="left", padx=(px(PAD_S), 0))
+
         self._sync_dog_ui()
 
     def _sync_dog_ui(self):
@@ -3509,7 +3798,7 @@ class App(tk.Tk):
                     b.configure(state=state)
                 except Exception:
                     pass
-        for b in getattr(self, "cal_btns", []):      # 校准那三个按钮同理
+        for b in getattr(self, "cal_btns", []):      # 校准三个 + 生产测试, 同理
             try:
                 b.configure(state=state)
             except Exception:
@@ -3652,6 +3941,9 @@ class App(tk.Tk):
 
     def _close_cal(self):
         self._cal_poll = False
+        # 框没了 —— 磁力流程的在途消息 (轮询结果/拟合结果) 一并作废, 不用等
+        # 下一只框打开才靠世代号拦住。getattr 兜底: 磁力框可能从没开过。
+        self._mag_gen = getattr(self, "_mag_gen", 0) + 1
         try:
             self._cal_win.destroy()
         except Exception:
@@ -3914,8 +4206,10 @@ class App(tk.Tk):
         self.lbl_mag_chip = ttk.Label(row, foreground=C_TEXT, text="")
         self.lbl_mag_chip.pack(side="left")
         self.var_mag_stat = tk.StringVar(value="")
-        ttk.Label(row, textvariable=self.var_mag_stat,
-                  foreground=C_TEXT).pack(side="right")
+        # 存引用: 拟合结果要按好坏换色 (C_OK / C_WARN / C_DANGER)
+        self.lbl_mag_stat = ttk.Label(row, textvariable=self.var_mag_stat,
+                                      foreground=C_TEXT)
+        self.lbl_mag_stat.pack(side="right")
 
         # ---- 六方向覆盖进度 ----
         # 椭球拟合要的是**各方向**都有样本 —— 光看样本数没用: 停在原地转, 采一万个
@@ -3934,8 +4228,41 @@ class App(tk.Tk):
             (tr("cal_mag_start"), self.on_cal_mag_start, None),
             (tr("cal_mag_finish"), self.on_cal_mag_finish, "AccentPage.TButton"),
         ))
+        # 「结束并拟合」初始灰 —— 要等本次采集满 MAG_MIN_SAMPLES 个样本才激活
+        # (在 cal_mag_stat 处理里; 与固件的硬门槛一致, 见 MAG_MIN_SAMPLES 注释)
+        self._mag_fin_armed = False
+        self._mag_set_fin(False)
+        # 世代号: 只增不减。在途的旧消息 (轮询结果 / 拟合结果) 靠它判别过期 ——
+        # 对话框每打开一次也 +1, 所以上一个对话框的残留消息同样进不来。
+        self._mag_gen = getattr(self, "_mag_gen", 0) + 1
         self._load_imu_info()
         self._cal_poll = False
+
+    def _mag_set_start(self, on):
+        """「开始采集」按钮启停。窗口可能已被关闭销毁 ⇒ 吞异常, 与本文件风格一致"""
+        try:
+            self.btn_mag_start.configure(state="normal" if on else "disabled")
+        except Exception:
+            pass
+
+    def _mag_set_fin(self, on):
+        """「结束并拟合」按钮启停 (激活条件由 cal_mag_stat 处理把关)"""
+        try:
+            self.btn_mag_fin.configure(state="normal" if on else "disabled")
+        except Exception:
+            pass
+
+    def _mag_stat(self, text, color=None):
+        """写右上角状态行 (文本, 可选颜色)。窗口可能已销毁 ⇒ 全吞异常"""
+        try:
+            self.var_mag_stat.set(text)
+        except Exception:
+            pass
+        if color is not None:
+            try:
+                self.lbl_mag_stat.configure(foreground=color)
+            except Exception:
+                pass
 
     def _cal_footer_ret(self, parent, specs):
         """和 _cal_footer 一样, 但把建出来的按钮**返回**, 好在别处改它们的状态。
@@ -3957,17 +4284,25 @@ class App(tk.Tk):
         return made
 
     def on_cal_mag_start(self):
+        """开始 —— 或**重新开始** —— 采集。可重复点: 固件 start_mag_cal() 会把样本
+        计数清零, 所以每点一次都回到"重新数 30 个"的状态 (按钮随之打灰)。"""
         if not self._cal_guard():
             return
-        try:
-            self.btn_mag_fin.configure(state="normal")
-        except Exception:
-            pass
+        # ★ 点击瞬间就把「结束并拟合」打灰: 上一次采集若已采满 30 个, 它正亮着;
+        #   重新开始后必须重新等 30 个。不先打灰就有一段"按钮还亮着、而新采集
+        #   其实才 0 个样本"的窗口 —— 此时点它, 固件必然返回失败。
+        self._mag_fin_armed = False
+        self._mag_set_fin(False)
+        # ★ 世代号 +1 + 停旧轮询: 在途的旧轮询结果就此作废。它读到的是**上一轮**
+        #   的高样本数, 不拦的话到达时会把刚打灰的按钮又点亮 (假激活)。
+        self._mag_gen = getattr(self, "_mag_gen", 0) + 1
+        self._cal_poll = False
+        gen = self._mag_gen
 
         def work():
             self.post("cal_log", text=mag_cal_start(self.sm) or
                       tr("cal_mag_started"))
-            self.post("cal_mag_begin")
+            self.post("cal_mag_begin", gen=gen)
 
         self.run_bg(work)
 
@@ -4018,39 +4353,181 @@ class App(tk.Tk):
                            anchor="e", fill=C_TEXT, font=FONT_SMALL)
 
     def _mag_poll(self):
-        """采集期间定时问一次进度。**只在采集开着的时候跑** —— 每 700ms 一次
-        raw_exec, 一直跑着会平白占着串口。"""
+        """采集期间定时问一次进度 (MAG_POLL_MS)。**只在采集开着的时候跑** ——
+        一直跑着会平白占着串口。"""
         if not getattr(self, "_cal_poll", False) or not self._cal_win:
             return
+        # 上一拍还在路上 → 跳过本拍 (与生产测试轮询同款防积压)
+        if self._mag_busy:
+            try:
+                self._cal_win.after(MAG_POLL_MS, self._mag_poll)
+            except Exception:
+                pass
+            return
+        self._mag_busy = True
+
+        # 发起读取前把世代号记下 —— 这条结果回来时若世代已变 (用户又点了开始/
+        # 结束了采集), 处理端会把它丢弃。见 on_cal_mag_start 的说明。
+        gen = getattr(self, "_mag_gen", 0)
 
         def work():
             try:
-                ok, cnt, dirs, _raw = mag_cal_collect(self.sm)
-                self.post("cal_mag_stat", count=cnt, ok=ok, cover=dirs)
-            except Exception:
-                pass
+                try:
+                    ok, cnt, dirs, _raw = mag_cal_collect(self.sm)
+                    self.post("cal_mag_stat", gen=gen, count=cnt, ok=ok, cover=dirs)
+                except Exception:
+                    pass
+            finally:
+                self._mag_busy = False
 
-        self.run_bg(work)
+        self.run_bg(work, keep_raw=True)   # 采集期间留在 raw, 别每拍进出一趟
         try:
-            self._cal_win.after(700, self._mag_poll)
+            self._cal_win.after(MAG_POLL_MS, self._mag_poll)
         except Exception:
             pass
 
     def on_cal_mag_finish(self):
         if not self._cal_guard():
             return
+        # ★ 点击瞬间两颗按钮都打灰: 「结束并拟合」防连点; 「开始采集」防"拟合还在
+        #   跑, 用户又重开采集" —— 两条 raw_exec 会互相插队, 结果与提示就对不上了。
+        #   拟合结束由 cal_mag_fin_end 把「开始采集」恢复。
+        self._mag_set_fin(False)
+        self._mag_set_start(False)
+        # 世代号 +1: 在途的旧轮询结果全部作废 (不然它会把刚打灰的按钮又点亮)
+        self._mag_gen = getattr(self, "_mag_gen", 0) + 1
         self._cal_poll = False
+        gen = self._mag_gen
 
         def work():
             self.post("cal_log", text=tr("cal_mag_fitting"))
             try:
                 resid, raw = mag_cal_finish(self.sm)
                 self.post("cal_log", text=raw)
-                self.post("cal_mag_done", resid=resid)
+                self.post("cal_mag_done", gen=gen, resid=resid)
             except Exception as e:
+                # 超时 / 拔线 / 坏响应 —— 没拿到结果就是"未确认", 照实报
                 self.post("cal_log", text="%s" % e)
+                self.post("cal_mag_done", gen=gen, resid=None)
+            finally:
+                # ★ 无论成功、固件失败还是异常, 都要把「开始采集」恢复 ——
+                #   否则用户从这里出去就没有路可走了。
+                self.post("cal_mag_fin_end", gen=gen)
 
         self.run_bg(work)
+
+    # ---- 生产测试 (整机验机: 舵机摆动 + 姿态 + 语音; UI 开在设置页栏内, 不弹框) ----
+    def _pt_set_run(self, on):
+        """开/停测试: 按钮文字与轮询链的启停都在这。
+
+        ⚠ 启动是**异步**的 (run_bg): 按钮先按"进行中"显示, 板侧注入失败时
+          由 pt_err 消息回滚; 注入成功才由 pt_begin 把轮询链拉起来。
+        """
+        self._pt_run = bool(on)
+        try:
+            self.btn_pt_run.configure(text=tr("pt_stop") if on else tr("pt_start"))
+        except Exception:
+            pass
+        if on:
+            def work():
+                try:
+                    ok, raw = pt_start(self.sm)
+                except Exception as e:
+                    self.post("pt_err", text="%s" % e)
+                    return
+                if ok:
+                    self.post("pt_begin")
+                else:
+                    self.post("pt_err", text=(raw or "").strip() or "no PT_OK")
+
+            self.run_bg(work)
+        else:
+            def work():
+                try:
+                    pt_stop(self.sm)       # best-effort; 板侧看门狗兜底
+                except Exception:
+                    pass
+
+            self.run_bg(work)
+
+    def _pt_toggle(self):
+        # 按钮已随连接状态置灰 (在 cal_btns 里), 这里是双重兜底
+        if not self._pt_run and not self._cal_guard():
+            return
+        self._pt_set_run(not self._pt_run)
+
+    def _pt_poll(self):
+        """生产测试轮询链: 每 PT_POLL_MS 读一拍姿态/语音。
+
+        这一拍同时是板侧摆动线程的**心跳** (pt_read 里刷 _pt_beat) ——
+        轮询停, 摆动最多再跑 PT_WD_MS 就自停, 狗不会永远摆下去。
+        """
+        if not self._pt_run:
+            return
+        # 上一拍还没回来就跳过本拍 —— 板子偶发变慢时 (响应等超时) 不积压线程。
+        # 无条件每 300ms 起一个新线程的话, 一次 5s 超时能排出十几个, 恢复后
+        # 还要挨个消化 —— "慢"被放大成"越堵越堵"。
+        if self._pt_busy:
+            try:
+                self.after(PT_POLL_MS, self._pt_poll)
+            except Exception:
+                pass
+            return
+        self._pt_busy = True
+
+        def work():
+            try:
+                try:
+                    d = pt_read(self.sm)
+                except Exception:
+                    d = None
+                self.post("pt_stat", data=d)
+            finally:
+                self._pt_busy = False      # worker 线程里清; bool 读写 GIL 下原子
+
+        self.run_bg(work, keep_raw=True)   # 轮询期间板子留在 raw, 别每拍进出一趟
+        try:
+            self.after(PT_POLL_MS, self._pt_poll)   # 显示控件常驻设置页, 挂主窗口即可
+        except Exception:
+            pass
+
+    def _pt_show(self, d):
+        """按一拍数据刷新姿态/语音显示。d=None (没解析到) 保持原样。"""
+        if d is None:
+            return
+        try:
+            if d["imu"]:
+                self.var_pt_att.set("%s %+7.1f°   %s %+7.1f°   %s %+7.1f°" % (
+                    tr("pt_roll"), d["roll"], tr("pt_pitch"), d["pitch"],
+                    tr("pt_yaw"), d["yaw"]))
+            else:
+                self.var_pt_att.set(tr("pt_imu_na"))
+            if d["cmd"] in PT_CMDS:
+                self.var_pt_last.set(tr("pt_last", name=tr(PT_CMDS[d["cmd"]])))
+            else:
+                self.var_pt_last.set(tr("pt_last_none"))
+            if d["sa"] >= 0:
+                self.var_pt_cnt.set(tr("pt_cnt", n=d["n"], a=d["sa"]))
+            else:
+                self.var_pt_cnt.set(tr("pt_cnt_nosa", n=d["n"]))
+            if d.get("sa8"):
+                # 8 路逐路显示 —— 生产测试是**验机**: 某一路没初始化/没接好
+                # 会显示 "--", 一眼定位。
+                # 摆动命令 8 路本来就是同一个值 ⇒ 读回也应该一致; ≤1.5° 的
+                # 差异只可能是校准正/逆变换的浮点边界误差 (软件噪声), 显示上
+                # 按统一值处理, 不把噪声当问题亮给用户。差得更大 = 某路真的
+                # 不同 (卡住/没动) ⇒ 如实显示, 这才是要抓的。
+                vals = d["sa8"]
+                ok = [a for a in vals if a >= 0]
+                if ok and max(ok) - min(ok) <= 1.5:
+                    v = round(sum(ok) / len(ok))
+                    self.var_pt_servo.set(" ".join(
+                        "--" if a < 0 else "%d" % v for a in vals))
+                else:
+                    self.var_pt_servo.set(" ".join(
+                        "--" if a < 0 else "%d" % round(a) for a in vals))
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # 线程 → UI 消息泵 / worker thread → UI pump
@@ -4315,22 +4792,78 @@ class App(tk.Tk):
                         self.var_mag_stat.set(tr("cal_mag_none"))
                 except Exception:
                     pass
+                if not has:
+                    # 没有磁力计:「结束并拟合」也保持灰 (本来就是灰, 这里兜一道,
+                    # 防止"对话框开着时换了板子"之类的场景漏掉)
+                    self._mag_set_fin(False)
         elif kind == "cal_mag_begin":
+            if kw.get("gen") != getattr(self, "_mag_gen", 0):
+                return                      # 过期消息 (用户已重开/结束/关了又开)
             self._cal_poll = True
             self._mag_cover = None
+            self._mag_fin_armed = False
+            self._mag_set_fin(False)        # 重新数满 MAG_MIN_SAMPLES 个之前不可拟合
             self._mag_draw()
             if self.var_mag_stat.get() != tr("cal_mag_none"):
-                self.var_mag_stat.set(tr("cal_mag_count", n=0))
+                self._mag_stat(tr("cal_mag_count", n=0, t=MAG_REC_SAMPLES), C_TEXT)
             self._mag_poll()
         elif kind == "cal_mag_stat":
+            if kw.get("gen") != getattr(self, "_mag_gen", 0):
+                return                      # 过期的轮询结果 —— 不许拿它点亮按钮
+            cnt = kw.get("count", 0)
             if self.var_mag_stat.get() != tr("cal_mag_none"):
-                self.var_mag_stat.set(tr("cal_mag_count", n=kw.get("count", 0)))
+                self._mag_stat(tr("cal_mag_count", n=cnt, t=MAG_REC_SAMPLES))
             self._mag_cover = kw.get("cover")
             self._mag_draw()
+            # 采满 MAG_MIN_SAMPLES 个 → 「结束并拟合」激活 (与固件的硬门槛一致)。
+            # armed 标志: 只在**首次**跨过门槛时打那行日志, 防每拍重复刷屏。
+            if cnt >= MAG_MIN_SAMPLES and not getattr(self, "_mag_fin_armed", False):
+                self._mag_fin_armed = True
+                self._mag_set_fin(True)
+                self.post("cal_log", text=tr("cal_mag_ready"))
+        elif kind == "cal_mag_fin_end":
+            if kw.get("gen") != getattr(self, "_mag_gen", 0):
+                return
+            # 拟合流程结束 (成功 / 固件失败 / 异常三条路都到这儿):
+            # 「开始采集」恢复可用; 「结束并拟合」保持灰 —— 要重新采满才再亮。
+            self._mag_set_start(True)
+            self._mag_set_fin(False)
+            self._mag_fin_armed = False
         elif kind == "cal_mag_done":
+            if kw.get("gen") != getattr(self, "_mag_gen", 0):
+                return
             r = kw.get("resid")
-            self.var_mag_stat.set(
-                tr("cal_mag_resid_none") if r is None else tr("cal_mag_resid", r=r))
+            if r is None:
+                # 没回话 (超时/拔线/没解析到结果) —— 没确认过就不能说"已写入"
+                self._mag_stat(tr("cal_mag_stat_no_reply"), C_DANGER)
+                self.post("cal_log", text=tr("cal_mag_resid_no_reply"))
+            elif r < 0:
+                # 固件明确拒绝 (样本 <30 / 拟合失败), 未写 NVS
+                self._mag_stat(tr("cal_mag_stat_fail"), C_DANGER)
+                self.post("cal_log", text=tr("cal_mag_resid_fail"))
+            elif r <= MAG_RESID_GOOD:
+                self._mag_stat(tr("cal_mag_stat_good", r=r), C_OK)
+                self.post("cal_log", text=tr("cal_mag_resid_good", r=r))
+            elif r <= MAG_RESID_WARN:
+                self._mag_stat(tr("cal_mag_stat_fair", r=r), C_OK)
+                self.post("cal_log", text=tr("cal_mag_resid_fair", r=r))
+            else:
+                self._mag_stat(tr("cal_mag_stat_poor", r=r), C_WARN)
+                self.post("cal_log", text=tr("cal_mag_resid_poor", r=r))
+        elif kind == "pt_begin":
+            # 板侧注入成功 → 拉起轮询链 (after 只能在主线程调, 所以由消息泵中转)
+            if self._pt_run:
+                self._pt_poll()
+        elif kind == "pt_err":
+            # 注入失败 (没连板子 / 缺模块): 报错到设置页顶部的警告行 + 按钮回滚
+            try:
+                self.lbl_dog_hint.configure(
+                    text=tr("failed", msg=kw.get("text", "")))
+            except Exception:
+                pass
+            self._pt_set_run(False)
+        elif kind == "pt_stat":
+            self._pt_show(kw.get("data"))
         elif kind == "lost":
             self._on_link_lost()
         elif kind == "dog_read":
@@ -4344,6 +4877,9 @@ class App(tk.Tk):
             self.refresh_local()
         elif kind == "back_to_repl":
             self._back_to_repl()
+        elif kind == "mode_ui":
+            # keep_raw 的轮询收尾: 板子留在 raw, 只把「切回 REPL」按钮/状态栏刷对
+            self._sync_mode_ui()
         elif kind == "msgbox":
             messagebox.showinfo(APP_NAME, kw["text"])
         elif kind == "text_dialog":
@@ -4831,8 +5367,19 @@ class App(tk.Tk):
         except Exception:
             pass
 
-    def run_bg(self, fn, *a, **kw):
-        """把耗时操作丢到后台线程, 异常统一报给 UI"""
+    def run_bg(self, fn, *a, keep_raw=False, **kw):
+        """把耗时操作丢到后台线程, 异常统一报给 UI。
+
+        keep_raw=True: **结束后不回普通 REPL**, 板子留在 raw 模式。
+          专给高频轮询用 (生产测试 300ms / 磁力采集 200ms) —— 它们马上又要进
+          raw, 每拍"退出再进入"纯属多余, 而且两个后果都实测到了:
+            ① "回普通 REPL" 是在**主线程**做的 (back_to_repl 消息), 主线程要等
+               串口锁 + 睡 150ms —— 轮询越密画面越顿;
+            ② 板子**再进 raw** 要握手, 而语音模块的打印会插进握手里让它重试
+               (见 enter_raw 的注释), 语音一响, 主线程等锁就卡好几秒。
+          留在 raw 期间键盘输入不进终端 —— 「切回 REPL」按钮的状态由 mode_ui
+          消息照常刷新; 停止轮询的那次收尾 (keep_raw=False) 自然退回普通 REPL。
+        """
         def wrap():
             try:
                 fn(*a, **kw)
@@ -4840,13 +5387,16 @@ class App(tk.Tk):
                 self.post("msgbox_err", text="%s" % e)
                 self.post("status", text=tr("failed", msg=e))
             finally:
-                # ★ 所有后台操作结束**都必须**把终端收回普通 REPL。
+                # ★ 后台操作结束默认把终端收回普通 REPL。
                 #   收在这里而不是各操作自己末尾, 是因为**出错路径也得走到**:
                 #   文件操作失败时若停在 raw 模式, 键盘输入会被忽略 → 终端"哑"了,
                 #   而那正是用户最需要敲字排查的时候。
                 #   放这儿还有个好处: 新增操作不可能忘。
                 #   _back_to_repl 对"本来就不在 raw"是空操作, 串口已关也安全。
-                self.post("back_to_repl")
+                if keep_raw:
+                    self.post("mode_ui")       # 板子留在 raw, 只把按钮状态刷对
+                else:
+                    self.post("back_to_repl")
                 self.post("busy", on=False)
         self.set_busy(True)
         threading.Thread(target=wrap, daemon=True).start()
@@ -5119,6 +5669,17 @@ class App(tk.Tk):
         self.menu_tools.entryconfigure(self.mi_conn, state="normal")
         self.menu_tools.entryconfigure(self.mi_disc, state="disabled")
         self.var_status.set(tr("link_lost"))
+        # 串口没了, 采集轮询没必要再转 (每拍都是白跑一趟); 校准框若还开着,
+        # 用户重连后点 [开始采集] 即可 —— 按钮状态不动, 保留原有恢复路径。
+        self._cal_poll = False
+        # 生产测试若在跑: 测试已随断线死掉 —— 按钮复位;
+        # 板侧摆动线程由心跳看门狗 (PT_WD_MS) 自动停, 这里不必发命令。
+        if self._pt_run:
+            self._pt_run = False
+            try:
+                self.btn_pt_run.configure(text=tr("pt_start"))
+            except Exception:
+                pass
         try:
             self.sm.close()
         except Exception:
